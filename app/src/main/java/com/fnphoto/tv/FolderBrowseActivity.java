@@ -43,8 +43,8 @@ import retrofit2.converter.gson.GsonConverterFactory;
  */
 public class FolderBrowseActivity extends FragmentActivity {
     private static final String TAG = "FolderBrowseActivity";
-    private static final int GRID_SPAN_COUNT = 4; // 照片墙每行显示4个
-    private static final int FOLDER_GRID_SPAN_COUNT = 2; // 文件夹每行显示2个
+    private static final int GRID_SPAN_COUNT = 6; // 照片墙每行显示6个
+    private static final int FOLDER_GRID_SPAN_COUNT = 4; // 文件夹每行显示4个
     private static final int PAGE_LIMIT = 100; // 每页加载数量
 
     private TextView tvTitle;
@@ -370,7 +370,7 @@ public class FolderBrowseActivity extends FragmentActivity {
             void bind(FnHttpApi.SubFolderItem folder) {
                 tvName.setText(folder.name);
                 tvCount.setText("文件夹");
-                ivPreview.setImageResource(android.R.drawable.ic_menu_gallery);
+                ivPreview.setImageResource(R.drawable.folder_icon);
             }
         }
     }

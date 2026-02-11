@@ -99,7 +99,7 @@ public class CardPresenter extends Presenter {
             // 文件夹类型：显示文件夹图标
             cardView.setMainImageDimensions(CARD_WIDTH, CARD_HEIGHT);
             Drawable drawable = ContextCompat.getDrawable(cardView.getContext(), 
-                    android.R.drawable.ic_menu_gallery);
+                    R.drawable.folder_icon);
             cardView.setMainImage(drawable);
         } else {
             // 照片类型

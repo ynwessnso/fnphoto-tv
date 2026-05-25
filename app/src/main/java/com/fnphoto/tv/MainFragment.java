@@ -13,8 +13,10 @@ import com.fnphoto.tv.api.FnAuthUtils;
 import com.fnphoto.tv.api.FnHttpApi;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import retrofit2.Call;
@@ -26,7 +28,7 @@ import retrofit2.converter.gson.GsonConverterFactory;
 public class MainFragment extends BrowseSupportFragment {
     private static final String TAG = "MainFragment";
     private static final int PREVIEW_LOAD_DELAY = 300; // 延迟加载时间
-    private static final int VISIBLE_RANGE_BUFFER = 8; // 可视范围前后的缓冲数量
+    private static final int VISIBLE_RANGE_BUFFER = 40; // 可视范围前后的缓冲数量
 
     private FnHttpApi api;
     private String token;
@@ -45,6 +47,9 @@ public class MainFragment extends BrowseSupportFragment {
     private Handler positionHandler = new Handler(Looper.getMainLooper()); // 专门用于位置恢复
     private int lastVisibleIndex = -1;
     
+    // 预览缩略图缓存（按日期字符串缓存，避免返回时重新加载）
+    private Map<String, List<String>> previewThumbnailCache = new HashMap<>();
+
     // 保存滚动位置
     private int savedTimelinePosition = -1;  // 保存时间线的选中位置
     private int savedPhotoListPosition = -1; // 保存照片列表的选中位置
@@ -150,10 +155,15 @@ public class MainFragment extends BrowseSupportFragment {
                 final FnHttpApi.TimelineItem timelineItem = allTimelineItems.get(i);
                 
                 if (timelineItem.itemCount > 0) {
-                    loadDatePreviewThumbnails(mediaItem, timelineItem, () -> {
-                        // 通知更新
+                    // 如果已有缓存的预览缩略图，直接通知更新，无需重新请求
+                    if (mediaItem.getPreviewThumbUrls() != null && !mediaItem.getPreviewThumbUrls().isEmpty()) {
+                        Log.d(TAG, "Using cached preview for " + mediaItem.getDateStr());
                         notifyItemChanged(mediaItem);
-                    });
+                    } else {
+                        loadDatePreviewThumbnails(mediaItem, timelineItem, () -> {
+                            notifyItemChanged(mediaItem);
+                        });
+                    }
                 }
             }
         }
@@ -301,6 +311,10 @@ public class MainFragment extends BrowseSupportFragment {
                 item.day + "日 (" + item.itemCount + "张)",
                 item.itemCount
             );
+            // 如果缓存中有预览缩略图，直接复用
+            if (previewThumbnailCache.containsKey(dateStr)) {
+                mediaItem.setPreviewThumbUrls(previewThumbnailCache.get(dateStr));
+            }
             currentRowAdapter.add(mediaItem);
             allDateItems.add(mediaItem);
             allTimelineItems.add(item);
@@ -358,39 +372,49 @@ public class MainFragment extends BrowseSupportFragment {
         isPhotoListView = false;
         timelineItems = null;
         mRowsAdapter.clear();
-        
-        HeaderItem header = new HeaderItem("文件夹 (" + folders.size() + ")");
-        ArrayObjectAdapter listRowAdapter = new ArrayObjectAdapter(mCardPresenter);
-        
-        for (FnHttpApi.FolderItem folder : folders) {
-            // 构建显示文本：文件夹名 + 文件数量
-            String displayName = folder.getFolderName();
-            int totalCount = folder.getTotalCount();
-            if (totalCount > 0) {
-                StringBuilder countInfo = new StringBuilder();
-                if (folder.photoCount > 0) {
-                    countInfo.append(folder.photoCount).append("张照片");
-                }
-                if (folder.videoCount > 0) {
-                    if (countInfo.length() > 0) {
-                        countInfo.append("，");
+
+        int itemsPerRow = 6;
+        int totalRows = (int) Math.ceil((double) folders.size() / itemsPerRow);
+
+        for (int row = 0; row < totalRows; row++) {
+            int start = row * itemsPerRow;
+            int end = Math.min(start + itemsPerRow, folders.size());
+
+            HeaderItem header = row == 0 ? new HeaderItem("文件夹 (" + folders.size() + ")") : null;
+            ArrayObjectAdapter rowAdapter = new ArrayObjectAdapter(mCardPresenter);
+
+            for (int i = start; i < end; i++) {
+                FnHttpApi.FolderItem folder = folders.get(i);
+                String folderName = folder.getFolderName();
+                int totalCount = folder.getTotalCount();
+
+                MediaItem item = new MediaItem(
+                    String.valueOf(folder.folderId),
+                    folderName,
+                    "folder",
+                    null,
+                    folder.folderPath
+                );
+
+                if (totalCount > 0) {
+                    StringBuilder countInfo = new StringBuilder();
+                    if (folder.photoCount > 0) {
+                        countInfo.append(folder.photoCount).append("张照片");
                     }
-                    countInfo.append(folder.videoCount).append("个视频");
+                    if (folder.videoCount > 0) {
+                        if (countInfo.length() > 0) {
+                            countInfo.append(" · ");
+                        }
+                        countInfo.append(folder.videoCount).append("个视频");
+                    }
+                    item.setDateStr(countInfo.toString());
                 }
-                displayName = displayName + " (" + countInfo.toString() + ")";
+
+                rowAdapter.add(item);
             }
-            
-            MediaItem item = new MediaItem(
-                String.valueOf(folder.folderId),
-                displayName,
-                "folder",
-                null,
-                folder.folderPath  // 保存完整路径，后续可能需要用到
-            );
-            listRowAdapter.add(item);
+
+            mRowsAdapter.add(new ListRow(header, rowAdapter));
         }
-        
-        mRowsAdapter.add(new ListRow(header, listRowAdapter));
     }
 
     public void loadAlbums() {
@@ -482,7 +506,10 @@ public class MainFragment extends BrowseSupportFragment {
                             List<String> thumbUrls = new ArrayList<>();
                             for (FnHttpApi.GalleryPhoto photo : result.data.list) {
                                 if (photo.additional != null && photo.additional.thumbnail != null) {
-                                    String thumbUrl = photo.additional.thumbnail.sUrl;
+                                    String thumbUrl = photo.additional.thumbnail.mUrl;
+                                    if (thumbUrl == null) {
+                                        thumbUrl = photo.additional.thumbnail.sUrl;
+                                    }
                                     if (thumbUrl != null) {
                                         if (!thumbUrl.startsWith("http") && baseUrl != null) {
                                             thumbUrl = baseUrl + thumbUrl;
@@ -492,6 +519,7 @@ public class MainFragment extends BrowseSupportFragment {
                                 }
                             }
                             mediaItem.setPreviewThumbUrls(thumbUrls);
+                            previewThumbnailCache.put(dateStr, thumbUrls);
                         }
                     }
                     if (onComplete != null) onComplete.run();
@@ -574,13 +602,7 @@ public class MainFragment extends BrowseSupportFragment {
             if (photo.additional != null && photo.additional.thumbnail != null) {
                 FnHttpApi.GalleryThumbnail thumbnail = photo.additional.thumbnail;
                 
-                // 对于视频类型，使用中等尺寸缩略图(mUrl)作为预览图，效果更好
-                if ("video".equals(photo.category)) {
-                    thumbUrl = thumbnail.mUrl != null ? baseUrl + thumbnail.mUrl : null;
-                } else {
-                    // 对于照片，使用小尺寸缩略图(sUrl)即可
-                    thumbUrl = thumbnail.sUrl != null ? baseUrl + thumbnail.sUrl : null;
-                }
+                thumbUrl = thumbnail.mUrl != null ? baseUrl + thumbnail.mUrl : (thumbnail.sUrl != null ? baseUrl + thumbnail.sUrl : null);
                 
                 originalUrl = thumbnail.mUrl != null ? baseUrl + thumbnail.mUrl : null;
             }
@@ -687,13 +709,9 @@ public class MainFragment extends BrowseSupportFragment {
             String thumbUrl = null;
             String originalUrl = null;
 
-            if (photo.additional != null && photo.additional.thumbnail != null) {
+                if (photo.additional != null && photo.additional.thumbnail != null) {
                 FnHttpApi.GalleryThumbnail thumbnail = photo.additional.thumbnail;
-                if ("video".equals(photo.category)) {
-                    thumbUrl = thumbnail.mUrl != null ? baseUrl + thumbnail.mUrl : null;
-                } else {
-                    thumbUrl = thumbnail.sUrl != null ? baseUrl + thumbnail.sUrl : null;
-                }
+                thumbUrl = thumbnail.mUrl != null ? baseUrl + thumbnail.mUrl : (thumbnail.sUrl != null ? baseUrl + thumbnail.sUrl : null);
                 originalUrl = thumbnail.mUrl != null ? baseUrl + thumbnail.mUrl : null;
             }
 

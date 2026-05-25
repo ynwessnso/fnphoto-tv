@@ -35,6 +35,13 @@ public class CardPresenter extends Presenter {
     private static final int DATE_CARD_HEIGHT = 180;
     private static final int PADDING = 4;
     private static final int MAX_PREVIEW = 8;
+    private static final int[] FOLDER_COLORS = {
+        0xFF5C6BC0, 0xFF26A69A, 0xFFEF5350, 0xFF66BB6A,
+        0xFFFF7043, 0xFF42A5F5, 0xFFAB47BC, 0xFF26C6DA,
+        0xFF78909C, 0xFFFFA726, 0xFF8D6E63, 0xFFEC407A
+    };
+    private static Drawable[] folderCardPlaceholders;
+    private static int lastFolderColorIndex = -1;
 
     private String baseUrl;
 
@@ -67,7 +74,8 @@ public class CardPresenter extends Presenter {
         
         TextView contentView = cardView.findViewById(androidx.leanback.R.id.content_text);
         if (contentView != null) {
-            contentView.setVisibility(View.GONE);
+            contentView.setTextSize(10);
+            contentView.setTextColor(Color.parseColor("#B0BEC5"));
         }
     }
 
@@ -96,11 +104,9 @@ public class CardPresenter extends Presenter {
             cardView.setMainImageDimensions(CARD_WIDTH, CARD_HEIGHT);
             loadVideoThumbnail(cardView, mediaItem);
         } else if ("folder".equals(mediaItem.getType())) {
-            // 文件夹类型：显示文件夹图标
             cardView.setMainImageDimensions(CARD_WIDTH, CARD_HEIGHT);
-            Drawable drawable = ContextCompat.getDrawable(cardView.getContext(), 
-                    R.drawable.folder_icon);
-            cardView.setMainImage(drawable);
+            cardView.setMainImage(getFolderCardDrawable(cardView.getContext()));
+            cardView.setContentText(mediaItem.getDateStr() != null ? mediaItem.getDateStr() : "");
         } else {
             // 照片类型
             cardView.setMainImageDimensions(CARD_WIDTH, CARD_HEIGHT);
@@ -355,6 +361,32 @@ public class CardPresenter extends Presenter {
         canvas.drawColor(Color.parseColor("#33000000"));
         
         return new BitmapDrawable(context.getResources(), bitmap);
+    }
+
+    private Drawable getFolderCardDrawable(Context context) {
+        if (folderCardPlaceholders == null) {
+            folderCardPlaceholders = new Drawable[FOLDER_COLORS.length];
+            int bw = CARD_WIDTH * 3;
+            int bh = CARD_HEIGHT * 3;
+            for (int i = 0; i < FOLDER_COLORS.length; i++) {
+                Bitmap bitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+                Canvas canvas = new Canvas(bitmap);
+                canvas.drawColor(FOLDER_COLORS[i]);
+
+                Drawable folderDrawable = ContextCompat.getDrawable(context, R.drawable.folder_icon);
+                if (folderDrawable != null) {
+                    int iconSize = CARD_HEIGHT / 2;
+                    int cx = bw / 2;
+                    int cy = bh / 2;
+                    folderDrawable.setBounds(cx - iconSize, cy - iconSize, cx + iconSize, cy + iconSize);
+                    folderDrawable.draw(canvas);
+                }
+
+                folderCardPlaceholders[i] = new BitmapDrawable(context.getResources(), bitmap);
+            }
+        }
+        lastFolderColorIndex = (lastFolderColorIndex + 1) % FOLDER_COLORS.length;
+        return folderCardPlaceholders[lastFolderColorIndex];
     }
 
     private void loadSingleImage(ImageCardView cardView, MediaItem mediaItem) {

@@ -50,5 +50,13 @@
         <activity 
             android:name=".FolderBrowseActivity"
             android:screenOrientation="landscape" />
+            
+        <activity 
+            android:name=".SettingsActivity"
+            android:screenOrientation="landscape" />
+            
+        <activity 
+            android:name=".SearchActivity"
+            android:screenOrientation="landscape" />
     </application>
 </manifest>

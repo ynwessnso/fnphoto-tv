@@ -93,8 +93,9 @@ public class MainFragment extends BrowseSupportFragment {
                     if ("date".equals(mediaItem.getType())) {
                         loadPhotosByDate(mediaItem.getDateStr(), mediaItem.getPhotoCount());
                     } else if ("folder".equals(mediaItem.getType())) {
-                        // 打开文件夹浏览
                         openFolderBrowse(mediaItem);
+                    } else if ("album".equals(mediaItem.getType())) {
+                        loadPhotosByAlbum(mediaItem.getId(), mediaItem.getTitle());
                     } else if ("video".equals(mediaItem.getType()) || "photo".equals(mediaItem.getType())) {
                         openMediaDetail(mediaItem);
                     }
@@ -608,6 +609,178 @@ public class MainFragment extends BrowseSupportFragment {
                 }
             }, 300);
         }
+    }
+
+    public void loadFavorites() {
+        if (api == null || token == null || token.isEmpty()) {
+            Log.e(TAG, "API未初始化");
+            return;
+        }
+
+        String params = "limit=200&offset=0";
+        String authx = FnAuthUtils.generateAuthX("/p/api/v1/photo/collect/list", "GET", params);
+
+        api.getCollectList(token, authx, 200, 0).enqueue(new Callback<FnHttpApi.GalleryListResponse>() {
+            @Override
+            public void onResponse(Call<FnHttpApi.GalleryListResponse> call,
+                                   Response<FnHttpApi.GalleryListResponse> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    FnHttpApi.GalleryListResponse result = response.body();
+                    if (result.code == 0 && result.data != null && result.data.list != null) {
+                        displayPhotoList("❤️ 收藏", result.data.list);
+                    } else {
+                        showEmptyState("暂无收藏");
+                    }
+                }
+            }
+
+            @Override
+            public void onFailure(Call<FnHttpApi.GalleryListResponse> call, Throwable t) {
+                Log.e(TAG, "加载收藏失败", t);
+                showEmptyState("加载失败");
+            }
+        });
+    }
+
+    public void loadRecent() {
+        if (api == null || token == null || token.isEmpty()) {
+            Log.e(TAG, "API未初始化");
+            return;
+        }
+
+        String params = "limit=200&offset=0";
+        String authx = FnAuthUtils.generateAuthX("/p/api/v1/gallery/recent", "GET", params);
+
+        api.getRecentPhotos(token, authx, 200, 0).enqueue(new Callback<FnHttpApi.GalleryListResponse>() {
+            @Override
+            public void onResponse(Call<FnHttpApi.GalleryListResponse> call,
+                                   Response<FnHttpApi.GalleryListResponse> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    FnHttpApi.GalleryListResponse result = response.body();
+                    if (result.code == 0 && result.data != null && result.data.list != null) {
+                        displayPhotoList("最近添加", result.data.list);
+                    } else {
+                        showEmptyState("暂无照片");
+                    }
+                }
+            }
+
+            @Override
+            public void onFailure(Call<FnHttpApi.GalleryListResponse> call, Throwable t) {
+                Log.e(TAG, "加载最近照片失败", t);
+                showEmptyState("加载失败");
+            }
+        });
+    }
+
+    private void displayPhotoList(String title, List<FnHttpApi.GalleryPhoto> photos) {
+        isPhotoListView = true;
+        timelineItems = null;
+        mRowsAdapter.clear();
+
+        HeaderItem header = new HeaderItem(title + " (" + photos.size() + ")");
+        ArrayObjectAdapter listRowAdapter = new ArrayObjectAdapter(mCardPresenter);
+
+        currentMediaList = new ArrayList<>();
+
+        for (FnHttpApi.GalleryPhoto photo : photos) {
+            String thumbUrl = null;
+            String originalUrl = null;
+
+            if (photo.additional != null && photo.additional.thumbnail != null) {
+                FnHttpApi.GalleryThumbnail thumbnail = photo.additional.thumbnail;
+                if ("video".equals(photo.category)) {
+                    thumbUrl = thumbnail.mUrl != null ? baseUrl + thumbnail.mUrl : null;
+                } else {
+                    thumbUrl = thumbnail.sUrl != null ? baseUrl + thumbnail.sUrl : null;
+                }
+                originalUrl = thumbnail.mUrl != null ? baseUrl + thumbnail.mUrl : null;
+            }
+
+            MediaItem item = new MediaItem(
+                String.valueOf(photo.id),
+                photo.fileName,
+                photo.category,
+                thumbUrl,
+                originalUrl
+            );
+            currentMediaList.add(item);
+            listRowAdapter.add(item);
+        }
+
+        mRowsAdapter.add(new ListRow(header, listRowAdapter));
+    }
+
+    private void showEmptyState(String message) {
+        isPhotoListView = true;
+        timelineItems = null;
+        mRowsAdapter.clear();
+
+        HeaderItem header = new HeaderItem(message);
+        ArrayObjectAdapter listRowAdapter = new ArrayObjectAdapter(mCardPresenter);
+        mRowsAdapter.add(new ListRow(header, listRowAdapter));
+    }
+
+    public void loadPhotosByAlbum(String albumId, String albumName) {
+        if (api == null || token == null || token.isEmpty()) {
+            Log.e(TAG, "API未初始化");
+            return;
+        }
+
+        saveTimelinePosition();
+
+        String authx = FnAuthUtils.generateAuthX("/api/v1/photos/album/" + albumId, "GET", null);
+
+        api.getPhotosByAlbum(token, authx, albumId).enqueue(new Callback<FnHttpApi.PhotoListResponse>() {
+            @Override
+            public void onResponse(Call<FnHttpApi.PhotoListResponse> call,
+                                   Response<FnHttpApi.PhotoListResponse> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    FnHttpApi.PhotoListResponse result = response.body();
+                    if (result.data != null && result.data.photos != null) {
+                        displayAlbumPhotos(albumName, result.data.photos);
+                    }
+                }
+            }
+
+            @Override
+            public void onFailure(Call<FnHttpApi.PhotoListResponse> call, Throwable t) {
+                Log.e(TAG, "加载相册照片失败", t);
+            }
+        });
+    }
+
+    private void displayAlbumPhotos(String albumName, List<FnHttpApi.Photo> photos) {
+        isPhotoListView = true;
+        timelineItems = null;
+        mRowsAdapter.clear();
+
+        HeaderItem header = new HeaderItem("相册: " + albumName + " (" + photos.size() + "张)");
+        ArrayObjectAdapter listRowAdapter = new ArrayObjectAdapter(mCardPresenter);
+
+        currentMediaList = new ArrayList<>();
+
+        for (FnHttpApi.Photo photo : photos) {
+            String thumbUrl = photo.thumb != null ? baseUrl + photo.thumb : null;
+            String mediaUrl = photo.url != null ? baseUrl + photo.url : null;
+
+            String type = "photo";
+            if ("video".equals(photo.type)) {
+                type = "video";
+            }
+
+            MediaItem item = new MediaItem(
+                photo.id,
+                photo.name,
+                type,
+                thumbUrl,
+                mediaUrl
+            );
+            currentMediaList.add(item);
+            listRowAdapter.add(item);
+        }
+
+        mRowsAdapter.add(new ListRow(header, listRowAdapter));
     }
 
     private void openMediaDetail(MediaItem mediaItem) {

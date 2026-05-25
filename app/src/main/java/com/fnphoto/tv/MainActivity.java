@@ -153,8 +153,8 @@ public class MainActivity extends FragmentActivity {
         menuAdapter.add(new MenuItem("图库", "gallery"));
         menuAdapter.add(new MenuItem("文件夹", "folders"));
         menuAdapter.add(new MenuItem("收藏", "favorites"));
-        menuAdapter.add(new MenuItem("地图", "map"));
         menuAdapter.add(new MenuItem("最近添加", "recent"));
+        menuAdapter.add(new MenuItem("🔍 搜索", "search"));
         
         // 第二组：相册分类
         menuAdapter.add(new MenuItem("相册", "albums"));
@@ -206,18 +206,46 @@ public class MainActivity extends FragmentActivity {
             case "albums":
                 loadAlbums();
                 break;
-            case "settings":
-                // 打开设置
+            case "favorites":
+                loadFavorites();
                 break;
+            case "recent":
+                loadRecent();
+                break;
+            case "search":
+                openSearch();
+                return;
+            case "settings":
+                openSettings();
+                return;
             case "logout":
-                // 退出登录
                 logout();
-                return; // 退出后不关闭菜单，因为 activity 会被 finish
-            // 其他菜单项...
+                return;
+            case "map":
+            case "places":
+            case "people":
+            case "tags":
+            case "smart":
+            case "media_types":
+            case "shared":
+                Toast.makeText(this, "功能开发中: " + item.getTitle(), Toast.LENGTH_SHORT).show();
+                drawerLayout.closeDrawer(GravityCompat.END);
+                return;
         }
         
-        // 关闭菜单
         drawerLayout.closeDrawer(GravityCompat.END);
+    }
+    
+    private void openSettings() {
+        drawerLayout.closeDrawer(GravityCompat.END);
+        Intent intent = new Intent(this, SettingsActivity.class);
+        startActivity(intent);
+    }
+    
+    private void openSearch() {
+        drawerLayout.closeDrawer(GravityCompat.END);
+        Intent intent = new Intent(this, SearchActivity.class);
+        startActivity(intent);
     }
     
     private void logout() {
@@ -392,6 +420,22 @@ public class MainActivity extends FragmentActivity {
                 .findFragmentById(R.id.main_content_container);
         if (fragment != null) {
             fragment.loadAlbums();
+        }
+    }
+
+    private void loadFavorites() {
+        MainFragment fragment = (MainFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.main_content_container);
+        if (fragment != null) {
+            fragment.loadFavorites();
+        }
+    }
+
+    private void loadRecent() {
+        MainFragment fragment = (MainFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.main_content_container);
+        if (fragment != null) {
+            fragment.loadRecent();
         }
     }
 }

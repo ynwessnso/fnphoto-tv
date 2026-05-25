@@ -177,6 +177,71 @@ public interface FnHttpApi {
         @Header("authx") String authx
     );
     
+    // ==================== 搜索接口 ====================
+
+    /**
+     * 搜索照片
+     * GET /p/api/v1/photo/search
+     */
+    @GET("/p/api/v1/photo/search")
+    Call<GalleryListResponse> searchPhotos(
+        @Header("accesstoken") String accesstoken,
+        @Header("authx") String authx,
+        @Query("keyword") String keyword,
+        @Query("limit") int limit,
+        @Query("offset") int offset
+    );
+
+    // ==================== 收藏接口 ====================
+
+    /**
+     * 收藏/取消收藏照片
+     * POST /p/api/v1/photo/collect
+     */
+    @FormUrlEncoded
+    @POST("/p/api/v1/photo/collect")
+    Call<BaseResponse> toggleCollect(
+        @Header("accesstoken") String accesstoken,
+        @Header("authx") String authx,
+        @Field("id") int photoId,
+        @Field("collect") int collect
+    );
+
+    /**
+     * 获取收藏列表
+     * GET /p/api/v1/photo/collect/list
+     */
+    @GET("/p/api/v1/photo/collect/list")
+    Call<GalleryListResponse> getCollectList(
+        @Header("accesstoken") String accesstoken,
+        @Header("authx") String authx,
+        @Query("limit") int limit,
+        @Query("offset") int offset
+    );
+
+    /**
+     * 获取最近添加的照片
+     * GET /p/api/v1/gallery/recent
+     */
+    @GET("/p/api/v1/gallery/recent")
+    Call<GalleryListResponse> getRecentPhotos(
+        @Header("accesstoken") String accesstoken,
+        @Header("authx") String authx,
+        @Query("limit") int limit,
+        @Query("offset") int offset
+    );
+
+    /**
+     * 获取单张照片详情
+     * GET /p/api/v1/photo/detail/{id}
+     */
+    @GET("/p/api/v1/photo/detail/{id}")
+    Call<PhotoDetailResponse> getPhotoDetail(
+        @Header("accesstoken") String accesstoken,
+        @Header("authx") String authx,
+        @Path("id") int photoId
+    );
+
     // ==================== 时间线和智能相册接口 ====================
     
     /**
@@ -565,6 +630,49 @@ public interface FnHttpApi {
         public String xxsUrl; // 超超小尺寸
         public String videoUrl;
         public String originalUrl; // 原图
+    }
+
+    // ==================== 照片详情接口 ====================
+
+    class PhotoDetailResponse {
+        public int code;
+        public String msg;
+        public PhotoDetailData data;
+    }
+
+    class PhotoDetailData {
+        public PhotoDetailInfo info;
+    }
+
+    class PhotoDetailInfo {
+        public int id;
+        public int ownerId;
+        public String dateTime;
+        public String photoDateTime;
+        public String fileType;
+        public String category;
+        public String fileName;
+        public long fileSize;
+        public String description;
+        public int isCollect;
+        public String model;
+        public String make;
+        public String fNumber;
+        public String exposureTime;
+        public String isoSpeedRatings;
+        public String focalLength;
+        public String mp;
+        public String filePath;
+        public int height;
+        public int width;
+        public String exposureProgram;
+        public String meteringMode;
+        public String geo;
+        public int isLive;
+        public int rotation;
+        public int isCanPreview;
+        public String photoUUID;
+        public GalleryPhotoAdditional additional;
     }
 
 }

@@ -21,21 +21,29 @@ public interface FnHttpApi {
      * 获取相册列表
      * GET /api/v1/photos/albums
      */
-    @GET("/api/v1/photos/albums")
-    Call<AlbumResponse> getAlbums(
+    @GET("/p/api/v1/album/list")
+    Call<AlbumListResponse> getAlbums(
         @Header("accesstoken") String accesstoken,
-        @Header("authx") String authx
+        @Header("authx") String authx,
+        @Query("sort_direction") String sortDirection,
+        @Query("sort_by") String sortBy,
+        @Query("offset") int offset,
+        @Query("limit") int limit
     );
     
     /**
      * 获取相册内的照片列表
-     * GET /api/v1/photos/album/{albumId}
+     * GET /p/api/v1/album/photos?album_id=X&sort_by=date_time&sort_direction=desc&offset=0&limit=35
      */
-    @GET("/api/v1/photos/album/{albumId}")
-    Call<PhotoListResponse> getPhotosByAlbum(
+    @GET("/p/api/v1/album/photos")
+    Call<GalleryListResponse> getAlbumPhotos(
         @Header("accesstoken") String accesstoken,
         @Header("authx") String authx,
-        @Path("albumId") String albumId
+        @Query("album_id") int albumId,
+        @Query("sort_by") String sortBy,
+        @Query("sort_direction") String sortDirection,
+        @Query("offset") int offset,
+        @Query("limit") int limit
     );
     
     // ==================== 上传相关接口 ====================
@@ -232,6 +240,16 @@ public interface FnHttpApi {
     );
 
     /**
+     * 最近添加时间线
+     * GET /p/api/v1/explore/recent_timeline
+     */
+    @GET("/p/api/v1/explore/recent_timeline")
+    Call<TimelineResponse> getRecentTimeline(
+        @Header("accesstoken") String accesstoken,
+        @Header("authx") String authx
+    );
+
+    /**
      * 获取单张照片详情
      * GET /p/api/v1/photo/detail/{id}
      */
@@ -252,7 +270,8 @@ public interface FnHttpApi {
     @GET("/p/api/v1/gallery/timeline")
     Call<TimelineResponse> getTimeline(
         @Header("accesstoken") String accesstoken,
-        @Header("authx") String authx
+        @Header("authx") String authx,
+        @Query("is_collect") Integer isCollect
     );
     
     /**
@@ -282,21 +301,28 @@ public interface FnHttpApi {
     }
     
     // 相册相关
-    class AlbumResponse extends BaseResponse {
-        public AlbumData data;
+    class AlbumListResponse {
+        public int code;
+        public String msg;
+        public AlbumListData data;
     }
-    
-    class AlbumData {
-        public List<Album> albums;
+
+    class AlbumListData {
+        public List<NewAlbum> list;
     }
-    
-    class Album {
-        public String id;          // 相册ID
-        public String name;        // 相册名称
-        public int count;          // 照片数量
-        public String cover;       // 封面照片URL
-        public long createTime;    // 创建时间
-        public long updateTime;    // 更新时间
+
+    class NewAlbum {
+        public int albumId;
+        public String albumName;
+        public String source;
+        public int photoCount;
+        public int videoCount;
+        public String posterUrl;
+        public String posterImgUrl;
+        public String startDateTime;
+        public String endDateTime;
+        public int shared;
+        public int ownerId;
     }
     
     // 照片列表

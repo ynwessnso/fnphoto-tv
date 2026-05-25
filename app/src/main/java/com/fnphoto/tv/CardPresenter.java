@@ -107,6 +107,10 @@ public class CardPresenter extends Presenter {
             cardView.setMainImageDimensions(CARD_WIDTH, CARD_HEIGHT);
             cardView.setMainImage(getFolderCardDrawable(cardView.getContext()));
             cardView.setContentText(mediaItem.getDateStr() != null ? mediaItem.getDateStr() : "");
+        } else if ("album".equals(mediaItem.getType())) {
+            cardView.setMainImageDimensions(CARD_WIDTH, CARD_HEIGHT);
+            loadSingleImage(cardView, mediaItem);
+            cardView.setContentText(mediaItem.getDateStr() != null ? mediaItem.getDateStr() : "");
         } else {
             // 照片类型
             cardView.setMainImageDimensions(CARD_WIDTH, CARD_HEIGHT);

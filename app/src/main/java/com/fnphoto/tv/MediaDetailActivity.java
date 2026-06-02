@@ -51,10 +51,22 @@ import retrofit2.converter.gson.GsonConverterFactory;
 public class MediaDetailActivity extends FragmentActivity {
     private static final String TAG = "MediaDetailActivity";
     private static final long DEBOUNCE_TIME = 300;
-    private static final long SLIDESHOW_INTERVAL = 5000;
+    private long slideshowInterval = 2000; // 默认2秒，可通过 setSlideshowInterval 自定义
     private static final float ZOOM_STEP = 0.25f;
     private static final float MAX_SCALE = 5.0f;
     private static final float MIN_SCALE = 0.5f;
+
+    // 静态引用，避免 Intent 1MB 限制
+    private static List<MediaItem> sMediaList;
+    private static long sSlideshowInterval = 0; // 0 表示使用默认值
+
+    public static void setMediaList(List<MediaItem> list) {
+        sMediaList = list;
+    }
+
+    public static void setSlideshowInterval(long intervalMs) {
+        sSlideshowInterval = intervalMs;
+    }
 
     private FrameLayout container;
     private ImageView imageView;
@@ -76,6 +88,10 @@ public class MediaDetailActivity extends FragmentActivity {
     private boolean infoVisible = false;
     private float currentScale = 1.0f;
     private boolean isZoomed = false;
+    private boolean isPanMode = false; // true=平移模式, false=缩放模式
+    private float panX = 0f; // 水平平移量
+    private float panY = 0f; // 垂直平移量
+    private static final float PAN_STEP = 100f; // 每次平移像素
     private FnHttpApi api;
     private String baseUrl;
     private String token;
@@ -94,7 +110,13 @@ public class MediaDetailActivity extends FragmentActivity {
                 FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(container);
 
-        mediaList = (ArrayList<MediaItem>) getIntent().getSerializableExtra("MEDIA_LIST");
+        // 优先从静态引用获取，避免 Intent 1MB 限制
+        if (sMediaList != null) {
+            mediaList = sMediaList;
+            sMediaList = null; // 用完即清
+        } else {
+            mediaList = (ArrayList<MediaItem>) getIntent().getSerializableExtra("MEDIA_LIST");
+        }
         currentIndex = getIntent().getIntExtra("CURRENT_INDEX", 0);
 
         if (mediaList == null || mediaList.isEmpty()) {
@@ -116,6 +138,17 @@ public class MediaDetailActivity extends FragmentActivity {
         }
 
         showCurrentMedia();
+
+        // 自定义幻灯片间隔
+        if (sSlideshowInterval > 0) {
+            slideshowInterval = sSlideshowInterval;
+            sSlideshowInterval = 0; // 用完即清
+        }
+
+        // 自动开始幻灯片
+        if (getIntent().getBooleanExtra("AUTO_SLIDESHOW", false)) {
+            startSlideshow();
+        }
     }
 
     private void showCurrentMedia() {
@@ -128,6 +161,9 @@ public class MediaDetailActivity extends FragmentActivity {
         currentVideoItem = null;
         currentScale = 1.0f;
         isZoomed = false;
+        isPanMode = false;
+        panX = 0f;
+        panY = 0f;
 
         container.removeAllViews();
         hideInfoOverlay();
@@ -138,7 +174,12 @@ public class MediaDetailActivity extends FragmentActivity {
         }
 
         if ("video".equals(item.getType())) {
-            showVideoPreview(item);
+            if (slideshowActive) {
+                // 幻灯片模式下直接播放视频，不显示预览
+                startVideoPlayback(item);
+            } else {
+                showVideoPreview(item);
+            }
         } else {
             showPhoto(item);
         }
@@ -170,8 +211,6 @@ public class MediaDetailActivity extends FragmentActivity {
                         }
                     });
         }
-
-        imageView.setOnClickListener(v -> finish());
     }
 
     private void showVideoPreview(MediaItem item) {
@@ -292,7 +331,18 @@ public class MediaDetailActivity extends FragmentActivity {
             public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
                 if (playbackState == Player.STATE_ENDED) {
                     if (slideshowActive) {
-                        switchToNext();
+                        // 视频播放结束后，等待间隔再切换下一张
+                        slideshowHandler.removeCallbacks(slideshowRunnable);
+                        slideshowHandler.postDelayed(() -> {
+                            if (slideshowActive) {
+                                switchToNext();
+                                // 切换后重新启动定时器（如果下一张是图片）
+                                if (slideshowActive) {
+                                    slideshowHandler.removeCallbacks(slideshowRunnable);
+                                    slideshowHandler.postDelayed(slideshowRunnable, slideshowInterval);
+                                }
+                            }
+                        }, slideshowInterval);
                     }
                 }
             }
@@ -311,8 +361,21 @@ public class MediaDetailActivity extends FragmentActivity {
             float pivotX = imageView.getWidth() / 2f;
             float pivotY = imageView.getHeight() / 2f;
             matrix.postScale(currentScale, currentScale, pivotX, pivotY);
+            matrix.postTranslate(panX, panY);
             imageView.setScaleType(ImageView.ScaleType.MATRIX);
             imageView.setImageMatrix(matrix);
+        }
+    }
+
+    private void resetZoom() {
+        currentScale = 1.0f;
+        isZoomed = false;
+        isPanMode = false;
+        panX = 0f;
+        panY = 0f;
+        if (imageView != null) {
+            imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            imageView.setImageMatrix(new Matrix());
         }
     }
 
@@ -364,7 +427,7 @@ public class MediaDetailActivity extends FragmentActivity {
         slideshowActive = true;
         showSlideshowIndicator(true);
         Toast.makeText(this, "幻灯片已开始", Toast.LENGTH_SHORT).show();
-        slideshowHandler.postDelayed(slideshowRunnable, SLIDESHOW_INTERVAL);
+        slideshowHandler.postDelayed(slideshowRunnable, slideshowInterval);
     }
 
     private void stopSlideshow() {
@@ -377,11 +440,16 @@ public class MediaDetailActivity extends FragmentActivity {
     private final Runnable slideshowRunnable = new Runnable() {
         @Override
         public void run() {
+            if (!slideshowActive) return;
+            MediaItem current = (currentIndex >= 0 && currentIndex < mediaList.size())
+                    ? mediaList.get(currentIndex) : null;
+            // 如果当前是视频且正在播放，不触发切换（由视频结束回调处理）
+            if (current != null && "video".equals(current.getType()) && isVideoPlaying) {
+                return;
+            }
+            switchToNext();
             if (slideshowActive) {
-                switchToNext();
-                if (slideshowActive) {
-                    slideshowHandler.postDelayed(this, SLIDESHOW_INTERVAL);
-                }
+                slideshowHandler.postDelayed(this, slideshowInterval);
             }
         }
     };
@@ -645,30 +713,62 @@ public class MediaDetailActivity extends FragmentActivity {
 
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                switchToPrevious();
+                if (isPanMode) {
+                    panX += PAN_STEP;
+                    applyZoom();
+                } else {
+                    switchToPrevious();
+                }
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                switchToNext();
+                if (isPanMode) {
+                    panX -= PAN_STEP;
+                    applyZoom();
+                } else {
+                    switchToNext();
+                }
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
-                if (!isVideoPlaying && currentScale < MAX_SCALE) {
+                if (isVideoPlaying) return true;
+                if (isPanMode) {
+                    panY += PAN_STEP;
+                    applyZoom();
+                } else if (currentScale < MAX_SCALE) {
                     currentScale = Math.min(currentScale + ZOOM_STEP, MAX_SCALE);
+                    isZoomed = true;
                     applyZoom();
                 }
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                if (!isVideoPlaying && currentScale > MIN_SCALE) {
+                if (isVideoPlaying) return true;
+                if (isPanMode) {
+                    panY -= PAN_STEP;
+                    applyZoom();
+                } else if (currentScale > MIN_SCALE) {
                     currentScale = Math.max(currentScale - ZOOM_STEP, MIN_SCALE);
+                    isZoomed = currentScale > 1.0f;
                     applyZoom();
                 }
                 return true;
             case KeyEvent.KEYCODE_BACK:
-                finish();
+                if (isPanMode || isZoomed) {
+                    // 退出平移/缩放模式，恢复原始状态
+                    resetZoom();
+                    Toast.makeText(this, "已恢复原始大小", Toast.LENGTH_SHORT).show();
+                } else {
+                    finish();
+                }
                 return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
-                handleOkKey();
+                if (!isVideoPlaying && isZoomed) {
+                    // 切换缩放/平移模式
+                    isPanMode = !isPanMode;
+                    Toast.makeText(this, isPanMode ? "平移模式（方向键移动）" : "缩放模式（上下缩放）", Toast.LENGTH_SHORT).show();
+                } else {
+                    handleOkKey();
+                }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PLAY:
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:

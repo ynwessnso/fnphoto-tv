@@ -8,6 +8,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.KeyEvent;
+
+import org.json.JSONArray;
+import org.json.JSONException;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,6 +39,14 @@ public class MainActivity extends FragmentActivity {
     private String token;
     private String secret;
     private String baseUrl;
+
+    // 默认菜单顺序
+    public static final String[] DEFAULT_MENU_ORDER = {
+        "shared_to_me", "gallery", "folders", "favorites", "recent", "search",
+        "albums", "shared_by_me", "people", "places", "tags", "smart", "media_types",
+        "settings", "logout"
+    };
+    public static final String PREF_MENU_ORDER = "menu_order";
     
     // 双击返回键退出相关
     private boolean isBackPressedOnce = false;
@@ -147,29 +158,17 @@ public class MainActivity extends FragmentActivity {
 
         // 设置菜单适配器
         menuAdapter = new MenuAdapter();
-        
-        // 添加菜单项
-        // 第一组：浏览
-        menuAdapter.add(new MenuItem("图库", "gallery"));
-        menuAdapter.add(new MenuItem("文件夹", "folders"));
-        menuAdapter.add(new MenuItem("收藏", "favorites"));
-        menuAdapter.add(new MenuItem("最近添加", "recent"));
-        menuAdapter.add(new MenuItem("🔍 搜索", "search"));
-        
-        // 第二组：相册分类
-        menuAdapter.add(new MenuItem("相册", "albums"));
-        menuAdapter.add(new MenuItem("共享", "shared"));
-        menuAdapter.add(new MenuItem("人物", "people"));
-        menuAdapter.add(new MenuItem("地点", "places"));
-        menuAdapter.add(new MenuItem("标签", "tags"));
-        menuAdapter.add(new MenuItem("智能分类", "smart"));
-        menuAdapter.add(new MenuItem("媒体类型", "media_types"));
-        
-        // 第三组：设置
-        menuAdapter.add(new MenuItem("设置", "settings"));
-        
-        // 第四组：退出登录
-        menuAdapter.add(new MenuItem("退出登录", "logout"));
+
+        // 从 SharedPreferences 加载菜单顺序
+        SharedPreferences prefs = getSharedPreferences("fn_photo_prefs", Context.MODE_PRIVATE);
+        String[] menuOrder = loadMenuOrder(prefs);
+
+        for (String action : menuOrder) {
+            String title = getMenuTitleByAction(action);
+            if (title != null) {
+                menuAdapter.add(new MenuItem(title, action));
+            }
+        }
 
         menuGrid.setAdapter(menuAdapter);
         menuGrid.setWindowAlignment(VerticalGridView.WINDOW_ALIGN_HIGH_EDGE);
@@ -178,6 +177,44 @@ public class MainActivity extends FragmentActivity {
 
         // 禁用滑动打开菜单，只允许通过按键打开
         drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_LOCKED_CLOSED, GravityCompat.END);
+    }
+
+    private String[] loadMenuOrder(SharedPreferences prefs) {
+        String json = prefs.getString(PREF_MENU_ORDER, null);
+        if (json != null) {
+            try {
+                JSONArray arr = new JSONArray(json);
+                String[] order = new String[arr.length()];
+                for (int i = 0; i < arr.length(); i++) {
+                    order[i] = arr.getString(i);
+                }
+                return order;
+            } catch (JSONException e) {
+                Log.w(TAG, "菜单顺序解析失败，使用默认顺序", e);
+            }
+        }
+        return DEFAULT_MENU_ORDER;
+    }
+
+    private String getMenuTitleByAction(String action) {
+        switch (action) {
+            case "shared_to_me": return "共享给我";
+            case "gallery": return "图库";
+            case "folders": return "文件夹";
+            case "favorites": return "收藏";
+            case "recent": return "最近添加";
+            case "search": return "🔍 搜索";
+            case "albums": return "相册";
+            case "shared_by_me": return "我共享的";
+            case "people": return "人物";
+            case "places": return "地点";
+            case "tags": return "标签";
+            case "smart": return "智能分类";
+            case "media_types": return "媒体类型";
+            case "settings": return "设置";
+            case "logout": return "退出登录";
+            default: return null;
+        }
     }
 
     private void setupMainFragment() {
@@ -206,6 +243,15 @@ public class MainActivity extends FragmentActivity {
             case "albums":
                 loadAlbums();
                 break;
+            case "shared":
+                loadSharedAlbums();
+                break;
+            case "shared_to_me":
+                loadSharedAlbums();
+                break;
+            case "shared_by_me":
+                loadSharedByMeAlbums();
+                break;
             case "favorites":
                 loadFavorites();
                 break;
@@ -227,7 +273,6 @@ public class MainActivity extends FragmentActivity {
             case "tags":
             case "smart":
             case "media_types":
-            case "shared":
                 Toast.makeText(this, "功能开发中: " + item.getTitle(), Toast.LENGTH_SHORT).show();
                 drawerLayout.closeDrawer(GravityCompat.END);
                 return;
@@ -240,6 +285,19 @@ public class MainActivity extends FragmentActivity {
         drawerLayout.closeDrawer(GravityCompat.END);
         Intent intent = new Intent(this, SettingsActivity.class);
         startActivity(intent);
+    }
+
+    private void showSlideshowIntervalDialog(MainFragment fragment) {
+        final String[] options = {"2秒", "3秒", "5秒", "10秒", "30秒"};
+        final int[] intervals = {2, 3, 5, 10, 30};
+
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("幻灯片播放间隔")
+                .setItems(options, (dialog, which) -> {
+                    fragment.startSlideshow(intervals[which]);
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
     
     private void openSearch() {
@@ -274,6 +332,13 @@ public class MainActivity extends FragmentActivity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_MENU) {
+            // 在相册时间线视图下，MENU键显示幻灯片设置
+            MainFragment fragment = (MainFragment) getSupportFragmentManager()
+                    .findFragmentById(R.id.main_content_container);
+            if (fragment != null && fragment.isInAlbumTimelineView()) {
+                showSlideshowIntervalDialog(fragment);
+                return true;
+            }
             // 菜单键切换侧滑菜单
             if (drawerLayout.isDrawerOpen(GravityCompat.END)) {
                 drawerLayout.closeDrawer(GravityCompat.END);
@@ -341,9 +406,9 @@ public class MainActivity extends FragmentActivity {
                         Log.i(TAG, "相册应用版本信息:");
                         Log.i(TAG, "  版本号: " + result.data.version);
                         Log.i(TAG, "========================================");
-                        // 获取版本成功后，获取相册统计信息和加载照片
+                        // 获取版本成功后，获取相册统计信息和加载默认页面
                         getPhotoStats();
-                        loadTimelinePhotos();
+                        loadDefaultPage();
                     } else {
                         Log.w(TAG, "获取版本失败: errno=" + result.errno + ", result=" + result.result);
                     }
@@ -420,6 +485,45 @@ public class MainActivity extends FragmentActivity {
                 .findFragmentById(R.id.main_content_container);
         if (fragment != null) {
             fragment.loadAlbums();
+        }
+    }
+
+    private void loadSharedAlbums() {
+        MainFragment fragment = (MainFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.main_content_container);
+        if (fragment != null) {
+            fragment.loadSharedAlbums();
+        }
+    }
+
+    private void loadSharedByMeAlbums() {
+        MainFragment fragment = (MainFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.main_content_container);
+        if (fragment != null) {
+            fragment.loadSharedByMeAlbums();
+        }
+    }
+
+    private void loadDefaultPage() {
+        SharedPreferences prefs = getSharedPreferences("fn_photo_prefs", Context.MODE_PRIVATE);
+        String[] menuOrder = loadMenuOrder(prefs);
+        if (menuOrder.length > 0) {
+            String firstAction = menuOrder[0];
+            Log.d(TAG, "加载默认页面: " + firstAction);
+            handleMenuAction(firstAction);
+        }
+    }
+
+    private void handleMenuAction(String action) {
+        switch (action) {
+            case "gallery": loadTimelinePhotos(); break;
+            case "folders": loadFolders(); break;
+            case "albums": loadAlbums(); break;
+            case "favorites": loadFavorites(); break;
+            case "recent": loadRecent(); break;
+            case "shared_to_me": loadSharedAlbums(); break;
+            case "shared_by_me": loadSharedByMeAlbums(); break;
+            default: loadSharedAlbums(); break;
         }
     }
 

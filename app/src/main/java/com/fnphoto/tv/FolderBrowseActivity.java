@@ -467,8 +467,8 @@ public class FolderBrowseActivity extends FragmentActivity {
             mediaItems.add(mediaItem);
         }
 
+        MediaDetailActivity.setMediaList(mediaItems);
         Intent intent = new Intent(this, MediaDetailActivity.class);
-        intent.putExtra("MEDIA_LIST", new ArrayList<>(mediaItems));
         intent.putExtra("CURRENT_INDEX", position);
         startActivity(intent);
     }

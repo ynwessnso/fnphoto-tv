@@ -1,5 +1,6 @@
 package com.fnphoto.tv.api;
 
+import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.http.*;
 import java.util.List;
@@ -16,10 +17,10 @@ import java.util.Map;
 public interface FnHttpApi {
     
     // ==================== 基础相册接口 ====================
-    
+
     /**
      * 获取相册列表
-     * GET /api/v1/photos/albums
+     * GET /p/api/v1/album/list
      */
     @GET("/p/api/v1/album/list")
     Call<AlbumListResponse> getAlbums(
@@ -29,6 +30,47 @@ public interface FnHttpApi {
         @Query("sort_by") String sortBy,
         @Query("offset") int offset,
         @Query("limit") int limit
+    );
+
+    /**
+     * 获取他人共享给我的相册
+     * GET /p/api/v1/album_grant/list_to_me
+     */
+    @GET("/p/api/v1/album_grant/list_to_me")
+    Call<SharedToMeResponse> getSharedToMe(
+        @Header("accesstoken") String accesstoken,
+        @Header("authx") String authx,
+        @Query("offset") int offset,
+        @Query("limit") int limit,
+        @Query("sort_by") String sortBy,
+        @Query("sort_direction") String sortDirection
+    );
+
+    /**
+     * 获取他人共享给我的相册（原始响应，用于调试）
+     */
+    @GET("/p/api/v1/album_grant/list_to_me")
+    Call<ResponseBody> getSharedToMeRaw(
+        @Header("accesstoken") String accesstoken,
+        @Header("authx") String authx,
+        @Query("offset") int offset,
+        @Query("limit") int limit,
+        @Query("sort_by") String sortBy,
+        @Query("sort_direction") String sortDirection
+    );
+
+    /**
+     * 获取我共享给他人的相册
+     * GET /p/api/v1/album_grant/list_mine
+     */
+    @GET("/p/api/v1/album_grant/list_mine")
+    Call<SharedByMeResponse> getSharedByMe(
+        @Header("accesstoken") String accesstoken,
+        @Header("authx") String authx,
+        @Query("offset") int offset,
+        @Query("limit") int limit,
+        @Query("sort_by") String sortBy,
+        @Query("sort_direction") String sortDirection
     );
     
     /**
@@ -309,6 +351,50 @@ public interface FnHttpApi {
 
     class AlbumListData {
         public List<NewAlbum> list;
+    }
+
+    // 他人共享给我的相册响应（data 直接是相册对象）
+    class SharedToMeResponse {
+        public int code;
+        public String msg;
+        public SharedAlbum data;
+    }
+
+    // 我共享给他人的相册响应
+    class SharedByMeResponse {
+        public int code;
+        public String msg;
+        public SharedByMeData data;
+    }
+
+    class SharedByMeData {
+        public Integer count;
+        public Boolean hasNext;
+        public List<SharedAlbum> list;
+    }
+
+    class SharedAlbum {
+        public int albumId;
+        public String albumName;
+        public String source;
+        public int photoCount;
+        public int videoCount;
+        public String posterUrl;
+        public String posterImgUrl;
+        public String startDateTime;
+        public String endDateTime;
+        public int shared;
+        public int ownerId;
+        public String ownerName;
+        public List<GrantInfo> grants;
+        public String grantPermission;
+    }
+
+    class GrantInfo {
+        public String type;
+        public String permission;
+        public int targetId;
+        public String targetName;
     }
 
     class NewAlbum {

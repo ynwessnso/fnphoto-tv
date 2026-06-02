@@ -6,7 +6,7 @@ import java.util.List;
 public class MediaItem implements Serializable {
     private String id;
     private String title;
-    private String type; // "photo", "video", "date", "folder", "album"
+    private String type; // "photo", "video", "date", "folder", "album", "album_date"
     private String thumbnailUrl;
     private String mediaUrl;
     private String dateStr;      // 日期字符串，用于时间线日期项
@@ -43,6 +43,7 @@ public class MediaItem implements Serializable {
     public String getId() { return id; }
     public String getTitle() { return title; }
     public String getType() { return type; }
+    public void setType(String type) { this.type = type; }
     public String getThumbnailUrl() { return thumbnailUrl; }
     public String getMediaUrl() { return mediaUrl; }
     public String getDateStr() { return dateStr; }

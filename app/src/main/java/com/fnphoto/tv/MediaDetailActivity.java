@@ -327,9 +327,13 @@ public class MediaDetailActivity extends FragmentActivity {
             @Override
             public void onPlayerError(com.google.android.exoplayer2.ExoPlaybackException error) {
                 Log.e(TAG, "Player error: " + error.getMessage(), error);
-                Toast.makeText(MediaDetailActivity.this,
-                        "视频播放失败，请尝试在其他设备上播放",
-                        Toast.LENGTH_LONG).show();
+                String hint = "视频播放失败";
+                if (error.type == com.google.android.exoplayer2.ExoPlaybackException.TYPE_RENDERER) {
+                    hint = "设备不支持此视频编码格式";
+                } else if (error.type == com.google.android.exoplayer2.ExoPlaybackException.TYPE_SOURCE) {
+                    hint = "视频加载失败，可能是格式不支持";
+                }
+                Toast.makeText(MediaDetailActivity.this, hint, Toast.LENGTH_LONG).show();
             }
 
             @Override
@@ -354,7 +358,12 @@ public class MediaDetailActivity extends FragmentActivity {
         });
 
         android.net.Uri uri = android.net.Uri.parse(videoUrl);
-        ProgressiveMediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory)
+        // 显式启用所有格式支持（包括 MOV/QuickTime）
+        com.google.android.exoplayer2.extractor.DefaultExtractorsFactory extractorsFactory =
+                new com.google.android.exoplayer2.extractor.DefaultExtractorsFactory();
+        extractorsFactory.setConstantBitrateSeekingEnabled(true);
+
+        ProgressiveMediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory)
                 .createMediaSource(uri);
         player.prepare(mediaSource);
         player.setPlayWhenReady(true);

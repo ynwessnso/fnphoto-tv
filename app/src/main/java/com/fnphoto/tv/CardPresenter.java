@@ -119,9 +119,10 @@ public class CardPresenter extends Presenter {
             loadSingleImage(cardView, mediaItem);
             cardView.setContentText(mediaItem.getDateStr() != null ? mediaItem.getDateStr() : "");
         } else {
-            // 照片类型
+            // 照片/视频类型，清除可能残留的副标题
             cardView.setMainImageDimensions(CARD_WIDTH, CARD_HEIGHT);
             loadSingleImage(cardView, mediaItem);
+            cardView.setContentText("");
         }
     }
 

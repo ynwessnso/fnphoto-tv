@@ -1,10 +1,13 @@
 package com.fnphoto.tv;
 
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.leanback.app.BrowseSupportFragment;
@@ -1168,6 +1171,8 @@ public class MainFragment extends BrowseSupportFragment {
     private boolean isAlbumTimelineView = false;
     private Object currentSelectedItem = null; // 当前选中的项
     private String savedSharedAlbumTitle = null; // 共享相册标题（用于返回时重建）
+    // 月份跳转：月份key → 该月第一行在adapter中的位置
+    private LinkedHashMap<String, Integer> monthRowMap = new LinkedHashMap<>();
 
     private static final int ALBUM_PAGE_SIZE = 500; // 每页加载数量（增大减少请求次数）
 
@@ -1313,6 +1318,8 @@ public class MainFragment extends BrowseSupportFragment {
 
         // 每月一行，平铺照片
         int itemsPerRow = 6;
+        int rowIndex = 0;
+        monthRowMap.clear();
         for (String monthKey : sortedKeys) {
             List<FnHttpApi.GalleryPhoto> monthPhotos = monthGroups.get(monthKey);
 
@@ -1322,9 +1329,13 @@ public class MainFragment extends BrowseSupportFragment {
             ArrayObjectAdapter rowAdapter = null;
             for (int i = 0; i < monthPhotos.size(); i++) {
                 if (i % itemsPerRow == 0) {
+                    if (i == 0) {
+                        monthRowMap.put(monthKey, rowIndex);
+                    }
                     HeaderItem header = (i == 0) ? new HeaderItem(headerTitle) : null;
                     rowAdapter = new ArrayObjectAdapter(mCardPresenter);
                     mRowsAdapter.add(new ListRow(header, rowAdapter));
+                    rowIndex++;
                 }
 
                 FnHttpApi.GalleryPhoto photo = monthPhotos.get(i);
@@ -1365,6 +1376,146 @@ public class MainFragment extends BrowseSupportFragment {
 
     public boolean isInAlbumTimelineView() {
         return isAlbumTimelineView && currentMediaList != null && !currentMediaList.isEmpty();
+    }
+
+    public void showMonthPickerDialog() {
+        if (monthRowMap.isEmpty()) return;
+
+        // 提取所有可用的年份和月份
+        final List<String> monthKeys = new ArrayList<>(monthRowMap.keySet());
+        final java.util.TreeSet<Integer> years = new java.util.TreeSet<>(java.util.Collections.reverseOrder());
+        for (String key : monthKeys) {
+            years.add(Integer.parseInt(key.split("-")[0]));
+        }
+
+        // 默认选中最新的年月
+        final String latestKey = monthKeys.get(0); // 降序，第一个是最新的
+        final String[] latestParts = latestKey.split("-");
+        final int[] selectedYear = {Integer.parseInt(latestParts[0])};
+        final int[] selectedMonth = {Integer.parseInt(latestParts[1])};
+
+        // 构建自定义布局
+        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(getActivity());
+        builder.setTitle("跳转到月份");
+
+        LinearLayout layout = new LinearLayout(getActivity());
+        layout.setOrientation(LinearLayout.HORIZONTAL);
+        layout.setGravity(android.view.Gravity.CENTER);
+        layout.setPadding(48, 32, 48, 16);
+
+        // 年份按钮
+        TextView tvYear = new TextView(getActivity());
+        tvYear.setTextSize(24);
+        tvYear.setFocusable(true);
+        tvYear.setFocusableInTouchMode(true);
+        tvYear.setPadding(24, 16, 24, 16);
+
+        // 月份按钮
+        TextView tvMonth = new TextView(getActivity());
+        tvMonth.setTextSize(24);
+        tvMonth.setFocusable(true);
+        tvMonth.setFocusableInTouchMode(true);
+        tvMonth.setPadding(24, 16, 24, 16);
+
+        // 分隔符
+        TextView tvSep = new TextView(getActivity());
+        tvSep.setText("年  ");
+        tvSep.setTextSize(24);
+        tvSep.setTextColor(Color.WHITE);
+
+        TextView tvSep2 = new TextView(getActivity());
+        tvSep2.setText("月");
+        tvSep2.setTextSize(24);
+        tvSep2.setTextColor(Color.WHITE);
+
+        Runnable updateDisplay = () -> {
+            tvYear.setText(String.valueOf(selectedYear[0]));
+            tvMonth.setText(String.valueOf(selectedMonth[0]));
+            // 高亮选中状态
+            tvYear.setTextColor(Color.parseColor("#FFD600"));
+            tvMonth.setTextColor(Color.parseColor("#FFD600"));
+        };
+        updateDisplay.run();
+
+        // 年份点击 → 弹出年份列表
+        tvYear.setOnClickListener(v -> {
+            Integer[] yearArr = years.toArray(new Integer[0]);
+            String[] yearLabels = new String[yearArr.length];
+            for (int i = 0; i < yearArr.length; i++) {
+                yearLabels[i] = yearArr[i] + "年";
+            }
+            new android.app.AlertDialog.Builder(getActivity())
+                    .setTitle("选择年份")
+                    .setItems(yearLabels, (d, w) -> {
+                        selectedYear[0] = yearArr[w];
+                        // 选中年份后，自动弹出月份选择
+                        showMonthSelector(selectedYear, selectedMonth, monthKeys, updateDisplay, tvMonth);
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
+        });
+
+        // 月份点击 → 弹出月份列表
+        tvMonth.setOnClickListener(v -> {
+            showMonthSelector(selectedYear, selectedMonth, monthKeys, updateDisplay, tvMonth);
+        });
+
+        layout.addView(tvYear);
+        layout.addView(tvSep);
+        layout.addView(tvMonth);
+        layout.addView(tvSep2);
+
+        builder.setView(layout);
+        builder.setPositiveButton("跳转", (d, w) -> {
+            String key = selectedYear[0] + "-" + String.format("%02d", selectedMonth[0]);
+            Integer targetRow = monthRowMap.get(key);
+            if (targetRow != null) {
+                setSelectedPosition(targetRow);
+                Log.d(TAG, "跳转到月份: " + key + " → 行 " + targetRow);
+            } else {
+                Toast.makeText(getContext(), selectedYear[0] + "年" + selectedMonth[0] + "月没有照片", Toast.LENGTH_SHORT).show();
+            }
+        });
+        builder.setNegativeButton("取消", null);
+
+        android.app.AlertDialog dialog = builder.create();
+        dialog.show();
+
+        // 默认焦点在年份上
+        tvYear.requestFocus();
+    }
+
+    private void showMonthSelector(int[] selectedYear, int[] selectedMonth,
+                                    List<String> monthKeys, Runnable updateDisplay, TextView tvMonth) {
+        // 找出该年份下有哪些月份
+        java.util.TreeSet<Integer> availableMonths = new java.util.TreeSet<>(java.util.Collections.reverseOrder());
+        String yearPrefix = selectedYear[0] + "-";
+        for (String key : monthKeys) {
+            if (key.startsWith(yearPrefix)) {
+                availableMonths.add(Integer.parseInt(key.split("-")[1]));
+            }
+        }
+
+        if (availableMonths.isEmpty()) {
+            Toast.makeText(getContext(), selectedYear[0] + "年没有照片", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Integer[] monthArr = availableMonths.toArray(new Integer[0]);
+        String[] monthLabels = new String[monthArr.length];
+        for (int i = 0; i < monthArr.length; i++) {
+            monthLabels[i] = monthArr[i] + "月";
+        }
+
+        new android.app.AlertDialog.Builder(getActivity())
+                .setTitle("选择月份")
+                .setItems(monthLabels, (d, w) -> {
+                    selectedMonth[0] = monthArr[w];
+                    updateDisplay.run();
+                    tvMonth.requestFocus();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     public void startSlideshow(int intervalSeconds) {

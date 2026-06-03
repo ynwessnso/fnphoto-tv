@@ -288,6 +288,21 @@ public class MainActivity extends FragmentActivity {
         startActivity(intent);
     }
 
+    private void showAlbumMenuDialog(MainFragment fragment) {
+        final String[] options = {"📅 月份跳转", "▶ 幻灯片播放"};
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("功能菜单")
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) {
+                        fragment.showMonthPickerDialog();
+                    } else {
+                        showSlideshowIntervalDialog(fragment);
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
     private void showSlideshowIntervalDialog(MainFragment fragment) {
         final String[] options = {"2秒", "3秒", "5秒", "10秒", "30秒"};
         final int[] intervals = {2, 3, 5, 10, 30};
@@ -333,11 +348,11 @@ public class MainActivity extends FragmentActivity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_MENU) {
-            // 在相册时间线视图下，MENU键显示幻灯片设置
+            // 在相册时间线视图下，MENU键显示功能菜单
             MainFragment fragment = (MainFragment) getSupportFragmentManager()
                     .findFragmentById(R.id.main_content_container);
             if (fragment != null && fragment.isInAlbumTimelineView()) {
-                showSlideshowIntervalDialog(fragment);
+                showAlbumMenuDialog(fragment);
                 return true;
             }
             // 菜单键切换侧滑菜单

@@ -174,10 +174,80 @@ public class CachedImageLoader {
     }
     
     /**
+     * 加载原图（带硬盘缓存，不缓存到内存）
+     */
+    public static void loadOriginalImage(Context context, String url, String token,
+                                          int width, int height, ImageLoadCallback callback) {
+        ImageCacheManager cacheManager = ImageCacheManager.getInstance(context);
+        boolean cacheEnabled = context.getSharedPreferences("fn_photo_prefs", Context.MODE_PRIVATE)
+                .getBoolean("original_cache_enabled", true);
+
+        // 检查原图缓存（仅在开启时）
+        File cacheFile = cacheEnabled ? cacheManager.getOriginalCacheFile(url) : null;
+        if (cacheFile != null) {
+            Log.d(TAG, "原图缓存命中: " + url);
+            Glide.with(context)
+                    .asBitmap()
+                    .load(cacheFile)
+                    .override(width, height)
+                    .into(new CustomTarget<Bitmap>() {
+                        @Override
+                        public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
+                            callback.onBitmapLoaded(resource);
+                        }
+                        @Override
+                        public void onLoadCleared(@Nullable Drawable placeholder) {}
+                        @Override
+                        public void onLoadFailed(@Nullable Drawable errorDrawable) {
+                            loadOriginalFromNetwork(context, url, token, width, height, callback);
+                        }
+                    });
+            return;
+        }
+
+        loadOriginalFromNetwork(context, url, token, width, height, callback);
+    }
+
+    private static void loadOriginalFromNetwork(Context context, String url, String token,
+                                                 int width, int height, ImageLoadCallback callback) {
+        Log.d(TAG, "从网络加载原图: " + url);
+        ImageCacheManager cacheManager = ImageCacheManager.getInstance(context);
+        boolean cacheEnabled = context.getSharedPreferences("fn_photo_prefs", Context.MODE_PRIVATE)
+                .getBoolean("original_cache_enabled", true);
+
+        GlideUrl glideUrl = new GlideUrl(url, new LazyHeaders.Builder()
+                .addHeader("accesstoken", token)
+                .build());
+
+        Glide.with(context)
+                .asBitmap()
+                .load(glideUrl)
+                .override(width, height)
+                .into(new CustomTarget<Bitmap>() {
+                    @Override
+                    public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
+                        if (cacheEnabled) {
+                            cacheManager.saveOriginalToCache(url, resource);
+                        }
+                        callback.onBitmapLoaded(resource);
+                    }
+                    @Override
+                    public void onLoadCleared(@Nullable Drawable placeholder) {}
+                    @Override
+                    public void onLoadFailed(@Nullable Drawable errorDrawable) {
+                        Log.e(TAG, "原图加载失败: " + url);
+                        callback.onLoadFailed();
+                    }
+                });
+    }
+
+    /**
      * 清空所有图片缓存
      */
     public static void clearAllCache(Context context) {
-        ImageCacheManager.getInstance(context).clearCache();
+        ImageCacheManager cacheManager = ImageCacheManager.getInstance(context);
+        cacheManager.clearCache();
+        cacheManager.clearOriginalCache();
     }
     
     /**

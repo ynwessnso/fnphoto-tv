@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import okhttp3.OkHttpClient;
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
@@ -70,8 +71,12 @@ public class MainFragment extends BrowseSupportFragment {
         setupUI();
         
         if (baseUrl != null && !baseUrl.isEmpty()) {
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .addInterceptor(new com.fnphoto.tv.api.AuthInterceptor(getActivity()))
+                    .build();
             Retrofit retrofit = new Retrofit.Builder()
                     .baseUrl(baseUrl + "/")
+                    .client(client)
                     .addConverterFactory(GsonConverterFactory.create())
                     .build();
             api = retrofit.create(FnHttpApi.class);
@@ -104,7 +109,11 @@ public class MainFragment extends BrowseSupportFragment {
                     } else if ("folder".equals(mediaItem.getType())) {
                         openFolderBrowse(mediaItem);
                     } else if ("album".equals(mediaItem.getType())) {
-                        loadPhotosByAlbum(mediaItem.getId(), mediaItem.getTitle());
+                        if ("0".equals(mediaItem.getId()) && isSharedAlbumView) {
+                            loadAllSharedAlbumPhotos();
+                        } else {
+                            loadPhotosByAlbum(mediaItem.getId(), mediaItem.getTitle());
+                        }
                     } else if ("video".equals(mediaItem.getType()) || "photo".equals(mediaItem.getType())) {
                         openMediaDetail(mediaItem);
                     }
@@ -196,7 +205,7 @@ public class MainFragment extends BrowseSupportFragment {
             savedAlbumPhotos = null;
             if (isSharedAlbumView && savedSharedAlbumList != null) {
                 Log.d(TAG, "Returning to shared album list");
-                displayAlbums(savedSharedAlbumList);
+                displaySharedAlbumsFromSaved();
             } else if (savedAlbumList != null) {
                 Log.d(TAG, "Returning to album list");
                 displayAlbums(savedAlbumList);
@@ -210,7 +219,7 @@ public class MainFragment extends BrowseSupportFragment {
                 displayTimeline(timelineItems);
             } else if (isSharedAlbumView && savedSharedAlbumList != null) {
                 Log.d(TAG, "Returning to shared album list");
-                displayAlbums(savedSharedAlbumList);
+                displaySharedAlbumsFromSaved();
             } else if (savedAlbumList != null) {
                 Log.d(TAG, "Returning to album list");
                 displayAlbums(savedAlbumList);
@@ -583,7 +592,17 @@ public class MainFragment extends BrowseSupportFragment {
 
     private void displaySharedAlbumCards(List<FnHttpApi.SharedAlbum> albums, String title) {
         savedSharedAlbumList = new ArrayList<>();
+        savedSharedAlbumTitle = title;
+
+        // 计算总照片/视频数
+        int totalPhotos = 0, totalVideos = 0;
+        String firstPosterUrl = null;
         for (FnHttpApi.SharedAlbum sa : albums) {
+            totalPhotos += sa.photoCount;
+            totalVideos += sa.videoCount;
+            if (firstPosterUrl == null && sa.posterUrl != null) {
+                firstPosterUrl = sa.posterUrl;
+            }
             FnHttpApi.NewAlbum na = new FnHttpApi.NewAlbum();
             na.albumId = sa.albumId;
             na.albumName = sa.albumName;
@@ -601,48 +620,130 @@ public class MainFragment extends BrowseSupportFragment {
         mRowsAdapter.clear();
 
         int itemsPerRow = 6;
-        int totalRows = (int) Math.ceil((double) albums.size() / itemsPerRow);
+        int totalItems = albums.size() + 1; // +1 为"全部共享"虚拟相册
+        int totalRows = (int) Math.ceil((double) totalItems / itemsPerRow);
 
         for (int row = 0; row < totalRows; row++) {
             int start = row * itemsPerRow;
-            int end = Math.min(start + itemsPerRow, albums.size());
+            int end = Math.min(start + itemsPerRow, totalItems);
 
             HeaderItem header = row == 0 ? new HeaderItem(title + " (" + albums.size() + ")") : null;
             ArrayObjectAdapter rowAdapter = new ArrayObjectAdapter(mCardPresenter);
 
             for (int i = start; i < end; i++) {
-                FnHttpApi.SharedAlbum album = albums.get(i);
-                String posterUrl = album.posterUrl != null ? baseUrl + album.posterUrl : null;
-                MediaItem item = new MediaItem(
-                        String.valueOf(album.albumId),
-                        album.albumName,
-                        "album",
-                        posterUrl,
-                        posterUrl
-                );
-
-                StringBuilder desc = new StringBuilder();
-                if (album.ownerName != null && !album.ownerName.isEmpty()) {
-                    desc.append(album.ownerName).append(" · ");
-                } else if (album.ownerId > 0) {
-                    desc.append("用户").append(album.ownerId).append(" · ");
-                }
-                if (album.photoCount > 0) {
-                    desc.append(album.photoCount).append("张照片");
-                }
-                if (album.videoCount > 0) {
-                    if (desc.length() > 0 && desc.charAt(desc.length() - 1) != '·') {
-                        desc.append(" · ");
+                MediaItem item;
+                if (i == 0) {
+                    // 全部共享虚拟相册
+                    String poster = firstPosterUrl != null ? baseUrl + firstPosterUrl : null;
+                    item = new MediaItem("0", "虚拟相册--共享合并", "album", poster, poster);
+                    StringBuilder desc = new StringBuilder();
+                    if (totalPhotos > 0) desc.append(totalPhotos).append("张照片");
+                    if (totalVideos > 0) {
+                        if (desc.length() > 0) desc.append(" · ");
+                        desc.append(totalVideos).append("个视频");
                     }
-                    desc.append(album.videoCount).append("个视频");
-                }
-                if (desc.length() > 0) {
-                    item.setDateStr(desc.toString());
+                    if (desc.length() > 0) item.setDateStr(desc.toString());
+                } else {
+                    FnHttpApi.SharedAlbum album = albums.get(i - 1);
+                    String posterUrl = album.posterUrl != null ? baseUrl + album.posterUrl : null;
+                    item = new MediaItem(
+                            String.valueOf(album.albumId),
+                            album.albumName,
+                            "album",
+                            posterUrl,
+                            posterUrl
+                    );
+
+                    StringBuilder desc = new StringBuilder();
+                    if (album.ownerName != null && !album.ownerName.isEmpty()) {
+                        desc.append(album.ownerName).append(" · ");
+                    } else if (album.ownerId > 0) {
+                        desc.append("用户").append(album.ownerId).append(" · ");
+                    }
+                    if (album.photoCount > 0) {
+                        desc.append(album.photoCount).append("张照片");
+                    }
+                    if (album.videoCount > 0) {
+                        if (desc.length() > 0 && desc.charAt(desc.length() - 1) != '·') {
+                            desc.append(" · ");
+                        }
+                        desc.append(album.videoCount).append("个视频");
+                    }
+                    if (desc.length() > 0) {
+                        item.setDateStr(desc.toString());
+                    }
                 }
 
                 rowAdapter.add(item);
             }
 
+            mRowsAdapter.add(new ListRow(header, rowAdapter));
+        }
+    }
+
+    private void displaySharedAlbumsFromSaved() {
+        if (savedSharedAlbumList == null || savedSharedAlbumList.isEmpty()) return;
+
+        isSharedAlbumView = true;
+        isPhotoListView = false;
+        timelineItems = null;
+        mRowsAdapter.clear();
+
+        // 计算总照片/视频数
+        int totalPhotos = 0, totalVideos = 0;
+        String firstPosterUrl = null;
+        for (FnHttpApi.NewAlbum na : savedSharedAlbumList) {
+            totalPhotos += na.photoCount;
+            totalVideos += na.videoCount;
+            if (firstPosterUrl == null && na.posterUrl != null) {
+                firstPosterUrl = na.posterUrl;
+            }
+        }
+
+        String title = savedSharedAlbumTitle != null ? savedSharedAlbumTitle : "共享给我";
+        int itemsPerRow = 6;
+        int totalItems = savedSharedAlbumList.size() + 1;
+        int totalRows = (int) Math.ceil((double) totalItems / itemsPerRow);
+
+        for (int row = 0; row < totalRows; row++) {
+            int start = row * itemsPerRow;
+            int end = Math.min(start + itemsPerRow, totalItems);
+
+            HeaderItem header = row == 0 ? new HeaderItem(title + " (" + savedSharedAlbumList.size() + ")") : null;
+            ArrayObjectAdapter rowAdapter = new ArrayObjectAdapter(mCardPresenter);
+
+            for (int i = start; i < end; i++) {
+                MediaItem item;
+                if (i == 0) {
+                    String poster = firstPosterUrl != null ? baseUrl + firstPosterUrl : null;
+                    item = new MediaItem("0", "虚拟相册--共享合并", "album", poster, poster);
+                    StringBuilder desc = new StringBuilder();
+                    if (totalPhotos > 0) desc.append(totalPhotos).append("张照片");
+                    if (totalVideos > 0) {
+                        if (desc.length() > 0) desc.append(" · ");
+                        desc.append(totalVideos).append("个视频");
+                    }
+                    if (desc.length() > 0) item.setDateStr(desc.toString());
+                } else {
+                    FnHttpApi.NewAlbum album = savedSharedAlbumList.get(i - 1);
+                    String posterUrl = album.posterUrl != null ? baseUrl + album.posterUrl : null;
+                    item = new MediaItem(
+                            String.valueOf(album.albumId),
+                            album.albumName,
+                            "album",
+                            posterUrl,
+                            posterUrl
+                    );
+                    StringBuilder desc = new StringBuilder();
+                    if (album.photoCount > 0) desc.append(album.photoCount).append("张照片");
+                    if (album.videoCount > 0) {
+                        if (desc.length() > 0) desc.append(" · ");
+                        desc.append(album.videoCount).append("个视频");
+                    }
+                    if (desc.length() > 0) item.setDateStr(desc.toString());
+                }
+                rowAdapter.add(item);
+            }
             mRowsAdapter.add(new ListRow(header, rowAdapter));
         }
     }
@@ -920,8 +1021,9 @@ public class MainFragment extends BrowseSupportFragment {
             if (photo.additional != null && photo.additional.thumbnail != null) {
                 FnHttpApi.GalleryThumbnail thumbnail = photo.additional.thumbnail;
                 
-                thumbUrl = thumbnail.mUrl != null ? baseUrl + thumbnail.mUrl : (thumbnail.sUrl != null ? baseUrl + thumbnail.sUrl : null);
-                
+                // 网格缩略图优先用 sUrl（更小更快）
+                thumbUrl = thumbnail.sUrl != null ? baseUrl + thumbnail.sUrl : (thumbnail.mUrl != null ? baseUrl + thumbnail.mUrl : null);
+
                 originalUrl = thumbnail.originalUrl != null ? baseUrl + thumbnail.originalUrl : (thumbnail.mUrl != null ? baseUrl + thumbnail.mUrl : null);
             }
 
@@ -1065,13 +1167,16 @@ public class MainFragment extends BrowseSupportFragment {
     private String savedAlbumName;
     private boolean isAlbumTimelineView = false;
     private Object currentSelectedItem = null; // 当前选中的项
+    private String savedSharedAlbumTitle = null; // 共享相册标题（用于返回时重建）
+
+    private static final int ALBUM_PAGE_SIZE = 500; // 每页加载数量（增大减少请求次数）
 
     private void loadAlbumPhotosPage(final String albumName, final int albumId,
                                      final int offset, final List<FnHttpApi.GalleryPhoto> allPhotos) {
-        String params = "album_id=" + albumId + "&sort_by=date_time&sort_direction=desc&offset=" + offset + "&limit=35";
+        String params = "album_id=" + albumId + "&sort_by=date_time&sort_direction=desc&offset=" + offset + "&limit=" + ALBUM_PAGE_SIZE;
         String authx = FnAuthUtils.generateAuthX("/p/api/v1/album/photos", "GET", params);
 
-        api.getAlbumPhotos(token, authx, albumId, "date_time", "desc", offset, 35)
+        api.getAlbumPhotos(token, authx, albumId, "date_time", "desc", offset, ALBUM_PAGE_SIZE)
             .enqueue(new Callback<FnHttpApi.GalleryListResponse>() {
             @Override
             public void onResponse(Call<FnHttpApi.GalleryListResponse> call,
@@ -1080,13 +1185,24 @@ public class MainFragment extends BrowseSupportFragment {
                     FnHttpApi.GalleryListResponse result = response.body();
                     if (result.code == 0 && result.data != null && result.data.list != null) {
                         allPhotos.addAll(result.data.list);
-                        if (result.data.list.size() >= 35) {
-                            loadAlbumPhotosPage(albumName, albumId, offset + 35, allPhotos);
+                        Log.d(TAG, "相册照片已加载: " + allPhotos.size() + " 张");
+
+                        // 第一页到达后立即显示，让用户马上看到内容
+                        if (offset == 0) {
+                            displayAlbumPhotos(albumName, allPhotos);
+                        }
+
+                        if (result.data.list.size() >= ALBUM_PAGE_SIZE) {
+                            // 还有更多页，继续加载
+                            loadAlbumPhotosPage(albumName, albumId, offset + ALBUM_PAGE_SIZE, allPhotos);
                             return;
                         }
                     }
                 }
-                displayAlbumPhotos(albumName, allPhotos);
+                // 所有页加载完毕，最终刷新显示（确保完整）
+                if (offset > 0) {
+                    displayAlbumPhotos(albumName, allPhotos);
+                }
             }
 
             @Override
@@ -1110,6 +1226,68 @@ public class MainFragment extends BrowseSupportFragment {
         loadAlbumPhotosPage(albumName, Integer.parseInt(albumId), 0, new ArrayList<FnHttpApi.GalleryPhoto>());
     }
 
+    private void loadAllSharedAlbumPhotos() {
+        if (savedSharedAlbumList == null || savedSharedAlbumList.isEmpty()) return;
+        if (api == null || token == null || token.isEmpty()) return;
+
+        saveTimelinePosition();
+        List<FnHttpApi.GalleryPhoto> allPhotos = new ArrayList<>();
+        loadAllSharedAlbumPhotosStep(0, allPhotos);
+    }
+
+    private void loadAllSharedAlbumPhotosStep(int albumIndex, List<FnHttpApi.GalleryPhoto> allPhotos) {
+        if (albumIndex >= savedSharedAlbumList.size()) {
+            // 所有相册加载完毕
+            Log.d(TAG, "全部共享相册照片加载完毕: " + allPhotos.size() + " 张");
+            if (allPhotos.isEmpty()) {
+                showEmptyState("暂无照片");
+            } else {
+                displayAlbumPhotos("虚拟相册--共享合并", allPhotos);
+            }
+            return;
+        }
+
+        FnHttpApi.NewAlbum album = savedSharedAlbumList.get(albumIndex);
+        loadAlbumPhotosForMerge(album.albumId, 0, allPhotos, albumIndex);
+    }
+
+    private void loadAlbumPhotosForMerge(int albumId, int offset,
+                                          List<FnHttpApi.GalleryPhoto> allPhotos,
+                                          int albumIndex) {
+        String params = "album_id=" + albumId + "&sort_by=date_time&sort_direction=desc&offset=" + offset + "&limit=" + ALBUM_PAGE_SIZE;
+        String authx = FnAuthUtils.generateAuthX("/p/api/v1/album/photos", "GET", params);
+
+        api.getAlbumPhotos(token, authx, albumId, "date_time", "desc", offset, ALBUM_PAGE_SIZE)
+            .enqueue(new Callback<FnHttpApi.GalleryListResponse>() {
+                @Override
+                public void onResponse(Call<FnHttpApi.GalleryListResponse> call,
+                                       Response<FnHttpApi.GalleryListResponse> response) {
+                    if (response.isSuccessful() && response.body() != null) {
+                        FnHttpApi.GalleryListResponse result = response.body();
+                        if (result.code == 0 && result.data != null && result.data.list != null) {
+                            allPhotos.addAll(result.data.list);
+                            Log.d(TAG, "合并加载: albumId=" + albumId + " offset=" + offset + " 本页=" + result.data.list.size() + " 总计=" + allPhotos.size());
+                            if (result.data.list.size() >= ALBUM_PAGE_SIZE) {
+                                // 还有更多页，继续加载
+                                loadAlbumPhotosForMerge(albumId, offset + ALBUM_PAGE_SIZE, allPhotos, albumIndex);
+                                return;
+                            }
+                        }
+                    }
+                    // 当前相册加载完毕，加载下一个相册
+                    Log.d(TAG, "相册 albumId=" + albumId + " 加载完毕，进入下一个相册");
+                    loadAllSharedAlbumPhotosStep(albumIndex + 1, allPhotos);
+                }
+
+                @Override
+                public void onFailure(Call<FnHttpApi.GalleryListResponse> call, Throwable t) {
+                    Log.e(TAG, "加载相册照片失败: albumId=" + albumId, t);
+                    // 失败也继续加载下一个相册
+                    loadAllSharedAlbumPhotosStep(albumIndex + 1, allPhotos);
+                }
+            });
+    }
+
     private void displayAlbumPhotos(String albumName, List<FnHttpApi.GalleryPhoto> photos) {
         savedAlbumPhotos = photos;
         savedAlbumName = albumName;
@@ -1129,11 +1307,14 @@ public class MainFragment extends BrowseSupportFragment {
             monthGroups.get(monthKey).add(photo);
         }
 
+        // 按月份降序排序（最新的在前面）
+        List<String> sortedKeys = new ArrayList<>(monthGroups.keySet());
+        java.util.Collections.sort(sortedKeys, (a, b) -> b.compareTo(a));
+
         // 每月一行，平铺照片
         int itemsPerRow = 6;
-        for (Map.Entry<String, List<FnHttpApi.GalleryPhoto>> entry : monthGroups.entrySet()) {
-            String monthKey = entry.getKey(); // "yyyy-MM"
-            List<FnHttpApi.GalleryPhoto> monthPhotos = entry.getValue();
+        for (String monthKey : sortedKeys) {
+            List<FnHttpApi.GalleryPhoto> monthPhotos = monthGroups.get(monthKey);
 
             String[] parts = monthKey.split("-");
             String headerTitle = parts[0] + "年" + Integer.parseInt(parts[1]) + "月 (" + monthPhotos.size() + "张)";

@@ -42,6 +42,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
+import okhttp3.OkHttpClient;
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
@@ -130,8 +131,12 @@ public class MediaDetailActivity extends FragmentActivity {
         token = prefs.getString("api_token", "");
 
         if (baseUrl != null && !baseUrl.isEmpty()) {
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .addInterceptor(new com.fnphoto.tv.api.AuthInterceptor(this))
+                    .build();
             Retrofit retrofit = new Retrofit.Builder()
                     .baseUrl(baseUrl + "/")
+                    .client(client)
                     .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
                     .build();
             api = retrofit.create(FnHttpApi.class);
@@ -198,7 +203,7 @@ public class MediaDetailActivity extends FragmentActivity {
             int screenWidth = getResources().getDisplayMetrics().widthPixels;
             int screenHeight = getResources().getDisplayMetrics().heightPixels;
 
-            CachedImageLoader.loadImage(this, mediaUrl, token, screenWidth, screenHeight,
+            CachedImageLoader.loadOriginalImage(this, mediaUrl, token, screenWidth, screenHeight,
                     new CachedImageLoader.ImageLoadCallback() {
                         @Override
                         public void onBitmapLoaded(Bitmap bitmap) {

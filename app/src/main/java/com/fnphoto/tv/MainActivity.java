@@ -27,6 +27,7 @@ import com.fnphoto.tv.api.FnAuthUtils;
 import com.fnphoto.tv.api.FnHttpApi;
 import java.util.ArrayList;
 import java.util.List;
+import okhttp3.OkHttpClient;
 import retrofit2.*;
 import retrofit2.converter.gson.GsonConverterFactory;
 
@@ -384,8 +385,12 @@ public class MainActivity extends FragmentActivity {
             return;
         }
 
+        OkHttpClient client = new OkHttpClient.Builder()
+                .addInterceptor(new com.fnphoto.tv.api.AuthInterceptor(this))
+                .build();
         Retrofit retrofit = new Retrofit.Builder()
                 .baseUrl(baseUrl + "/")
+                .client(client)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build();
         api = retrofit.create(FnHttpApi.class);

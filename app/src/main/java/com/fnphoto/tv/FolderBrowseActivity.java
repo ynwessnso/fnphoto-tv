@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import okhttp3.OkHttpClient;
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
@@ -186,8 +187,12 @@ public class FolderBrowseActivity extends FragmentActivity {
             return;
         }
 
+        OkHttpClient client = new OkHttpClient.Builder()
+                .addInterceptor(new com.fnphoto.tv.api.AuthInterceptor(this))
+                .build();
         Retrofit retrofit = new Retrofit.Builder()
                 .baseUrl(baseUrl + "/")
+                .client(client)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build();
         api = retrofit.create(FnHttpApi.class);

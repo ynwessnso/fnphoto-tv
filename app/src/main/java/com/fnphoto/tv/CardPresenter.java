@@ -85,7 +85,14 @@ public class CardPresenter extends Presenter {
         ImageCardView cardView = (ImageCardView) viewHolder.view;
 
         cardView.setTitleText(mediaItem.getTitle());
-        
+
+        // 虚拟相册标题用醒目黄色，其他恢复白色
+        TextView titleView = cardView.findViewById(androidx.leanback.R.id.title_text);
+        if (titleView != null) {
+            titleView.setTextColor(("0".equals(mediaItem.getId()) && "album".equals(mediaItem.getType()))
+                    ? Color.parseColor("#FFD600") : Color.WHITE);
+        }
+
         // 存储当前item的ID和类型，用于检查视图是否已被重用
         cardView.setTag(R.id.media_item_id, mediaItem.getId());
         cardView.setTag(R.id.media_item_type, mediaItem.getType());

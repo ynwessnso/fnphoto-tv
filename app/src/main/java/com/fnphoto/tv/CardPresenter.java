@@ -42,6 +42,8 @@ public class CardPresenter extends Presenter {
     };
     private static Drawable[] folderCardPlaceholders;
     private static int lastFolderColorIndex = -1;
+    private static final android.os.Handler DEBOUNCE_HANDLER = new android.os.Handler(android.os.Looper.getMainLooper());
+    private static final long LOAD_DELAY = 150; // ms
 
     private String baseUrl;
 
@@ -405,13 +407,25 @@ public class CardPresenter extends Presenter {
         Context context = cardView.getContext();
         SharedPreferences prefs = context.getSharedPreferences("fn_photo_prefs", Context.MODE_PRIVATE);
         String token = prefs.getString("api_token", "");
-        
+
         String imageUrl = mediaItem.getThumbnailUrl() != null ?
                 mediaItem.getThumbnailUrl() : mediaItem.getMediaUrl();
 
         if (imageUrl != null && !imageUrl.isEmpty()) {
-            // 使用带缓存的加载
-            CachedImageLoader.loadIntoImageView(cardView.getMainImageView(), imageUrl, token);
+            // 取消该 ImageView 之前的延迟加载
+            android.widget.ImageView imageView = cardView.getMainImageView();
+            Runnable oldTask = (Runnable) imageView.getTag(R.id.pending_load);
+            if (oldTask != null) {
+                DEBOUNCE_HANDLER.removeCallbacks(oldTask);
+            }
+
+            // 延迟加载，滚动时快速回收的卡片不会触发网络请求
+            final String url = imageUrl;
+            Runnable loadTask = () -> {
+                CachedImageLoader.loadIntoImageView(imageView, url, token);
+            };
+            imageView.setTag(R.id.pending_load, loadTask);
+            DEBOUNCE_HANDLER.postDelayed(loadTask, LOAD_DELAY);
         } else {
             Drawable drawable = ContextCompat.getDrawable(cardView.getContext(),
                     android.R.drawable.ic_menu_gallery);
@@ -422,6 +436,15 @@ public class CardPresenter extends Presenter {
     @Override
     public void onUnbindViewHolder(ViewHolder viewHolder) {
         ImageCardView cardView = (ImageCardView) viewHolder.view;
+        // 取消待执行的延迟加载
+        android.widget.ImageView imageView = cardView.getMainImageView();
+        if (imageView != null) {
+            Runnable pendingTask = (Runnable) imageView.getTag(R.id.pending_load);
+            if (pendingTask != null) {
+                DEBOUNCE_HANDLER.removeCallbacks(pendingTask);
+                imageView.setTag(R.id.pending_load, null);
+            }
+        }
         cardView.setBadgeImage(null);
         cardView.setMainImage(null);
         cardView.setTag(R.id.media_item_id, null);

@@ -202,6 +202,10 @@ public class MainFragment extends BrowseSupportFragment {
     }
 
     public boolean onBackPressed() {
+        // 图库视图没有上一级，返回 false 让系统处理退出
+        if (isGalleryView && isAlbumTimelineView) {
+            return false;
+        }
         // 从相册月份视图返回到相册列表
         if (isAlbumTimelineView) {
             isAlbumTimelineView = false;
@@ -300,26 +304,62 @@ public class MainFragment extends BrowseSupportFragment {
             Log.e(TAG, "API未初始化");
             return;
         }
+        isGalleryView = true;
+        isSharedAlbumView = false;
+        savedAlbumList = null;
+        savedSharedAlbumList = null;
+        loadAllGalleryPhotos(0, new ArrayList<>());
+    }
 
-        String authx = FnAuthUtils.generateAuthX("/p/api/v1/gallery/timeline", "GET", null);
+    private void loadAllGalleryPhotos(int offset, List<FnHttpApi.GalleryPhoto> allPhotos) {
+        String startTime = "2010:01:01 00:00:00";
+        String endTime = "2030:12:31 23:59:59";
+        String mode = "index";
 
-        api.getTimeline(token, authx, null).enqueue(new Callback<FnHttpApi.TimelineResponse>() {
-            @Override
-            public void onResponse(Call<FnHttpApi.TimelineResponse> call, 
-                                   Response<FnHttpApi.TimelineResponse> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    FnHttpApi.TimelineResponse result = response.body();
-                    if (result.code == 0 && result.data != null && result.data.list != null) {
-                        displayTimeline(result.data.list);
+        StringBuilder paramsBuilder = new StringBuilder();
+        paramsBuilder.append("end_time=").append(endTime);
+        paramsBuilder.append("&limit=").append(ALBUM_PAGE_SIZE);
+        paramsBuilder.append("&mode=").append(mode);
+        paramsBuilder.append("&offset=").append(offset);
+        paramsBuilder.append("&start_time=").append(startTime);
+
+        String params = paramsBuilder.toString();
+        String authx = FnAuthUtils.generateAuthX("/p/api/v1/gallery/getList", "GET", params);
+
+        api.getPhotosByTimeRange(token, authx, startTime, endTime, ALBUM_PAGE_SIZE, offset, mode)
+            .enqueue(new Callback<FnHttpApi.GalleryListResponse>() {
+                @Override
+                public void onResponse(Call<FnHttpApi.GalleryListResponse> call,
+                                       Response<FnHttpApi.GalleryListResponse> response) {
+                    if (response.isSuccessful() && response.body() != null) {
+                        FnHttpApi.GalleryListResponse result = response.body();
+                        if (result.code == 0 && result.data != null && result.data.list != null) {
+                            allPhotos.addAll(result.data.list);
+                            Log.d(TAG, "图库加载: offset=" + offset + " 本页=" + result.data.list.size() + " 总计=" + allPhotos.size());
+
+                            if (offset == 0) {
+                                displayAlbumPhotos("图库", allPhotos);
+                            }
+
+                            if (result.data.list.size() >= ALBUM_PAGE_SIZE) {
+                                loadAllGalleryPhotos(offset + ALBUM_PAGE_SIZE, allPhotos);
+                                return;
+                            }
+                        }
+                    }
+                    if (offset > 0) {
+                        displayAlbumPhotos("图库", allPhotos);
                     }
                 }
-            }
 
-            @Override
-            public void onFailure(Call<FnHttpApi.TimelineResponse> call, Throwable t) {
-                Log.e(TAG, "加载时间线失败", t);
-            }
-        });
+                @Override
+                public void onFailure(Call<FnHttpApi.GalleryListResponse> call, Throwable t) {
+                    Log.e(TAG, "图库加载失败", t);
+                    if (!allPhotos.isEmpty()) {
+                        displayAlbumPhotos("图库", allPhotos);
+                    }
+                }
+            });
     }
 
     private void displayTimeline(List<FnHttpApi.TimelineItem> items) {
@@ -373,6 +413,7 @@ public class MainFragment extends BrowseSupportFragment {
             Log.e(TAG, "API未初始化");
             return;
         }
+        isGalleryView = false;
 
         Boolean desc = false;
         Integer orderBy = 2;
@@ -461,6 +502,7 @@ public class MainFragment extends BrowseSupportFragment {
             Log.e(TAG, "API未初始化");
             return;
         }
+        isGalleryView = false;
 
         String params = "sort_direction=desc&sort_by=date_time&offset=0&limit=1000";
         String authx = FnAuthUtils.generateAuthX("/p/api/v1/album/list", "GET", params);
@@ -485,6 +527,7 @@ public class MainFragment extends BrowseSupportFragment {
     }
 
     public void loadSharedAlbums() {
+        isGalleryView = false;
         loadSharedAlbumsToMe();
     }
 
@@ -1061,6 +1104,7 @@ public class MainFragment extends BrowseSupportFragment {
             Log.e(TAG, "API未初始化");
             return;
         }
+        isGalleryView = false;
 
         String params = "is_collect=1";
         String authx = FnAuthUtils.generateAuthX("/p/api/v1/gallery/timeline", "GET", params);
@@ -1092,6 +1136,7 @@ public class MainFragment extends BrowseSupportFragment {
             Log.e(TAG, "API未初始化");
             return;
         }
+        isGalleryView = false;
 
         String authx = FnAuthUtils.generateAuthX("/p/api/v1/explore/recent_timeline", "GET", null);
 
@@ -1171,6 +1216,7 @@ public class MainFragment extends BrowseSupportFragment {
     private boolean isAlbumTimelineView = false;
     private Object currentSelectedItem = null; // 当前选中的项
     private String savedSharedAlbumTitle = null; // 共享相册标题（用于返回时重建）
+    private boolean isGalleryView = false; // 是否在图库视图中
     // 月份跳转：月份key → 该月第一行在adapter中的位置
     private LinkedHashMap<String, Integer> monthRowMap = new LinkedHashMap<>();
 
@@ -1236,29 +1282,22 @@ public class MainFragment extends BrowseSupportFragment {
         if (api == null || token == null || token.isEmpty()) return;
 
         saveTimelinePosition();
-        List<FnHttpApi.GalleryPhoto> allPhotos = new ArrayList<>();
-        loadAllSharedAlbumPhotosStep(0, allPhotos);
-    }
 
-    private void loadAllSharedAlbumPhotosStep(int albumIndex, List<FnHttpApi.GalleryPhoto> allPhotos) {
-        if (albumIndex >= savedSharedAlbumList.size()) {
-            // 所有相册加载完毕
-            Log.d(TAG, "全部共享相册照片加载完毕: " + allPhotos.size() + " 张");
-            if (allPhotos.isEmpty()) {
-                showEmptyState("暂无照片");
-            } else {
-                displayAlbumPhotos("虚拟相册--共享合并", allPhotos);
-            }
-            return;
+        final int albumCount = savedSharedAlbumList.size();
+        final java.util.concurrent.atomic.AtomicInteger finishedCount = new java.util.concurrent.atomic.AtomicInteger(0);
+        final List<FnHttpApi.GalleryPhoto> allPhotos = java.util.Collections.synchronizedList(new ArrayList<>());
+
+        // 并行加载所有相册
+        for (int i = 0; i < albumCount; i++) {
+            FnHttpApi.NewAlbum album = savedSharedAlbumList.get(i);
+            loadAlbumPhotosForMergeParallel(album.albumId, 0, allPhotos, albumCount, finishedCount);
         }
-
-        FnHttpApi.NewAlbum album = savedSharedAlbumList.get(albumIndex);
-        loadAlbumPhotosForMerge(album.albumId, 0, allPhotos, albumIndex);
     }
 
-    private void loadAlbumPhotosForMerge(int albumId, int offset,
-                                          List<FnHttpApi.GalleryPhoto> allPhotos,
-                                          int albumIndex) {
+    private void loadAlbumPhotosForMergeParallel(int albumId, int offset,
+                                                  List<FnHttpApi.GalleryPhoto> allPhotos,
+                                                  int albumCount,
+                                                  java.util.concurrent.atomic.AtomicInteger finishedCount) {
         String params = "album_id=" + albumId + "&sort_by=date_time&sort_direction=desc&offset=" + offset + "&limit=" + ALBUM_PAGE_SIZE;
         String authx = FnAuthUtils.generateAuthX("/p/api/v1/album/photos", "GET", params);
 
@@ -1271,24 +1310,37 @@ public class MainFragment extends BrowseSupportFragment {
                         FnHttpApi.GalleryListResponse result = response.body();
                         if (result.code == 0 && result.data != null && result.data.list != null) {
                             allPhotos.addAll(result.data.list);
-                            Log.d(TAG, "合并加载: albumId=" + albumId + " offset=" + offset + " 本页=" + result.data.list.size() + " 总计=" + allPhotos.size());
+                            Log.d(TAG, "并行加载: albumId=" + albumId + " offset=" + offset + " 本页=" + result.data.list.size());
                             if (result.data.list.size() >= ALBUM_PAGE_SIZE) {
-                                // 还有更多页，继续加载
-                                loadAlbumPhotosForMerge(albumId, offset + ALBUM_PAGE_SIZE, allPhotos, albumIndex);
+                                loadAlbumPhotosForMergeParallel(albumId, offset + ALBUM_PAGE_SIZE,
+                                        allPhotos, albumCount, finishedCount);
                                 return;
                             }
                         }
                     }
-                    // 当前相册加载完毕，加载下一个相册
-                    Log.d(TAG, "相册 albumId=" + albumId + " 加载完毕，进入下一个相册");
-                    loadAllSharedAlbumPhotosStep(albumIndex + 1, allPhotos);
+                    int done = finishedCount.incrementAndGet();
+                    Log.d(TAG, "相册 albumId=" + albumId + " 加载完毕 (" + done + "/" + albumCount + ")");
+                    if (done >= albumCount) {
+                        Log.d(TAG, "全部共享相册照片加载完毕: " + allPhotos.size() + " 张");
+                        if (allPhotos.isEmpty()) {
+                            showEmptyState("暂无照片");
+                        } else {
+                            displayAlbumPhotos("虚拟相册--共享合并", allPhotos);
+                        }
+                    }
                 }
 
                 @Override
                 public void onFailure(Call<FnHttpApi.GalleryListResponse> call, Throwable t) {
                     Log.e(TAG, "加载相册照片失败: albumId=" + albumId, t);
-                    // 失败也继续加载下一个相册
-                    loadAllSharedAlbumPhotosStep(albumIndex + 1, allPhotos);
+                    int done = finishedCount.incrementAndGet();
+                    if (done >= albumCount) {
+                        if (allPhotos.isEmpty()) {
+                            showEmptyState("暂无照片");
+                        } else {
+                            displayAlbumPhotos("虚拟相册--共享合并", allPhotos);
+                        }
+                    }
                 }
             });
     }
@@ -1408,14 +1460,22 @@ public class MainFragment extends BrowseSupportFragment {
         tvYear.setTextSize(24);
         tvYear.setFocusable(true);
         tvYear.setFocusableInTouchMode(true);
-        tvYear.setPadding(24, 16, 24, 16);
+        tvYear.setPadding(24, 12, 24, 12);
+        tvYear.setOnFocusChangeListener((v, hasFocus) -> {
+            tvYear.setBackgroundColor(hasFocus ? Color.parseColor("#3b82f6") : Color.TRANSPARENT);
+            tvYear.setTextColor(hasFocus ? Color.WHITE : Color.parseColor("#FFD600"));
+        });
 
         // 月份按钮
         TextView tvMonth = new TextView(getActivity());
         tvMonth.setTextSize(24);
         tvMonth.setFocusable(true);
         tvMonth.setFocusableInTouchMode(true);
-        tvMonth.setPadding(24, 16, 24, 16);
+        tvMonth.setPadding(24, 12, 24, 12);
+        tvMonth.setOnFocusChangeListener((v, hasFocus) -> {
+            tvMonth.setBackgroundColor(hasFocus ? Color.parseColor("#3b82f6") : Color.TRANSPARENT);
+            tvMonth.setTextColor(hasFocus ? Color.WHITE : Color.parseColor("#FFD600"));
+        });
 
         // 分隔符
         TextView tvSep = new TextView(getActivity());
@@ -1470,8 +1530,7 @@ public class MainFragment extends BrowseSupportFragment {
             String key = selectedYear[0] + "-" + String.format("%02d", selectedMonth[0]);
             Integer targetRow = monthRowMap.get(key);
             if (targetRow != null) {
-                setSelectedPosition(targetRow);
-                Log.d(TAG, "跳转到月份: " + key + " → 行 " + targetRow);
+                jumpToRow(targetRow);
             } else {
                 Toast.makeText(getContext(), selectedYear[0] + "年" + selectedMonth[0] + "月没有照片", Toast.LENGTH_SHORT).show();
             }
@@ -1577,6 +1636,55 @@ public class MainFragment extends BrowseSupportFragment {
         intent.putExtra("FOLDER_PATH", folderPath);
         intent.putExtra("FOLDER_NAME", folderItem.getTitle());
         startActivity(intent);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // 从全屏查看返回时，定位到当前查看的图片
+        if (isAlbumTimelineView && currentMediaList != null && !currentMediaList.isEmpty()) {
+            android.content.SharedPreferences prefs = getActivity().getSharedPreferences("fn_photo_prefs", android.content.Context.MODE_PRIVATE);
+            String lastPhotoId = prefs.getString("last_viewed_photo_id", null);
+            if (lastPhotoId != null) {
+                scrollToPhotoInTimeline(lastPhotoId);
+            }
+        }
+    }
+
+    private void scrollToPhotoInTimeline(String photoId) {
+        for (int rowIdx = 0; rowIdx < mRowsAdapter.size(); rowIdx++) {
+            Object row = mRowsAdapter.get(rowIdx);
+            if (row instanceof ListRow) {
+                ArrayObjectAdapter rowAdapter = (ArrayObjectAdapter) ((ListRow) row).getAdapter();
+                for (int i = 0; i < rowAdapter.size(); i++) {
+                    Object item = rowAdapter.get(i);
+                    if (item instanceof MediaItem && photoId.equals(((MediaItem) item).getId())) {
+                        jumpToRow(rowIdx);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 快速跳转到指定行（先 scrollToPosition 瞬移，再 setSelectedPosition 选中）
+     */
+    private void jumpToRow(int rowIdx) {
+        // 先通过 RowsSupportFragment 的 VerticalGridView 瞬移到目标位置
+        try {
+            androidx.leanback.app.RowsSupportFragment rowsFragment = getRowsSupportFragment();
+            if (rowsFragment != null && rowsFragment.getView() != null) {
+                androidx.leanback.widget.VerticalGridView gridView =
+                        (androidx.leanback.widget.VerticalGridView) rowsFragment.getView();
+                gridView.scrollToPosition(rowIdx);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "scrollToPosition failed", e);
+        }
+        // 再设置选中状态
+        setSelectedPosition(rowIdx);
+        Log.d(TAG, "快速跳转到行: " + rowIdx);
     }
 
     @Override

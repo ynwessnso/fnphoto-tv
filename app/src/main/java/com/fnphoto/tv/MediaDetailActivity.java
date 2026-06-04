@@ -162,6 +162,10 @@ public class MediaDetailActivity extends FragmentActivity {
         MediaItem item = mediaList.get(currentIndex);
         Log.d(TAG, "Showing media: " + item.getTitle() + " type: " + item.getType());
 
+        // 保存当前查看的图片ID，供返回时定位
+        getSharedPreferences("fn_photo_prefs", MODE_PRIVATE)
+                .edit().putString("last_viewed_photo_id", item.getId()).apply();
+
         isVideoPlaying = false;
         currentVideoItem = null;
         currentScale = 1.0f;
@@ -180,13 +184,51 @@ public class MediaDetailActivity extends FragmentActivity {
 
         if ("video".equals(item.getType())) {
             if (slideshowActive) {
-                // 幻灯片模式下直接播放视频，不显示预览
                 startVideoPlayback(item);
             } else {
                 showVideoPreview(item);
             }
         } else {
             showPhoto(item);
+        }
+
+        // 预缓存前后 10 张原图
+        preloadAdjacentPhotos(currentIndex);
+    }
+
+    // 预缓存顺序：先下5张，再上2张
+    private static final int[] PRELOAD_OFFSETS = {1, 2, 3, 4, 5, -1, -2};
+
+    private void preloadAdjacentPhotos(int centerIndex) {
+        boolean cacheEnabled = getSharedPreferences("fn_photo_prefs", MODE_PRIVATE)
+                .getBoolean("original_cache_enabled", true);
+        if (!cacheEnabled) return;
+
+        com.fnphoto.tv.cache.ImageCacheManager cacheManager = com.fnphoto.tv.cache.ImageCacheManager.getInstance(this);
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int screenHeight = getResources().getDisplayMetrics().heightPixels;
+
+        for (int offset : PRELOAD_OFFSETS) {
+            int i = centerIndex + offset;
+            if (i < 0 || i >= mediaList.size()) continue;
+
+            MediaItem adjItem = mediaList.get(i);
+            if (!"photo".equals(adjItem.getType())) continue;
+
+            String url = adjItem.getMediaUrl();
+            if (url == null || url.isEmpty()) continue;
+
+            if (cacheManager.getOriginalCacheFile(url) != null) continue;
+
+            com.fnphoto.tv.cache.CachedImageLoader.loadOriginalImage(this, url, token,
+                    screenWidth, screenHeight, new com.fnphoto.tv.cache.CachedImageLoader.ImageLoadCallback() {
+                        @Override
+                        public void onBitmapLoaded(Bitmap bitmap) {
+                            Log.d(TAG, "预缓存完成: offset=" + offset);
+                        }
+                        @Override
+                        public void onLoadFailed() {}
+                    });
         }
     }
 
@@ -198,21 +240,38 @@ public class MediaDetailActivity extends FragmentActivity {
         imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
         container.addView(imageView);
 
-        String mediaUrl = item.getMediaUrl();
-        if (mediaUrl != null && !mediaUrl.isEmpty()) {
-            int screenWidth = getResources().getDisplayMetrics().widthPixels;
-            int screenHeight = getResources().getDisplayMetrics().heightPixels;
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int screenHeight = getResources().getDisplayMetrics().heightPixels;
 
-            CachedImageLoader.loadOriginalImage(this, mediaUrl, token, screenWidth, screenHeight,
+        String thumbUrl = item.getThumbnailUrl();
+        String mediaUrl = item.getMediaUrl();
+
+        // 第一步：立刻显示缩略图（已缓存，0ms）
+        if (thumbUrl != null && !thumbUrl.isEmpty()) {
+            CachedImageLoader.loadImage(this, thumbUrl, token, screenWidth, screenHeight,
                     new CachedImageLoader.ImageLoadCallback() {
                         @Override
                         public void onBitmapLoaded(Bitmap bitmap) {
                             imageView.setImageBitmap(bitmap);
                         }
+                        @Override
+                        public void onLoadFailed() {}
+                    });
+        }
 
+        // 第二步：后台加载原图，加载完成后替换
+        if (mediaUrl != null && !mediaUrl.isEmpty() && !mediaUrl.equals(thumbUrl)) {
+            CachedImageLoader.loadOriginalImage(this, mediaUrl, token, screenWidth, screenHeight,
+                    new CachedImageLoader.ImageLoadCallback() {
+                        @Override
+                        public void onBitmapLoaded(Bitmap bitmap) {
+                            if (imageView != null && imageView.isAttachedToWindow()) {
+                                imageView.setImageBitmap(bitmap);
+                            }
+                        }
                         @Override
                         public void onLoadFailed() {
-                            Toast.makeText(MediaDetailActivity.this, "图片加载失败", Toast.LENGTH_SHORT).show();
+                            Log.w(TAG, "原图加载失败，保持缩略图: " + mediaUrl);
                         }
                     });
         }
@@ -439,6 +498,7 @@ public class MediaDetailActivity extends FragmentActivity {
             return;
         }
         slideshowActive = true;
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         showSlideshowIndicator(true);
         Toast.makeText(this, "幻灯片已开始", Toast.LENGTH_SHORT).show();
         slideshowHandler.postDelayed(slideshowRunnable, slideshowInterval);
@@ -447,6 +507,7 @@ public class MediaDetailActivity extends FragmentActivity {
     private void stopSlideshow() {
         slideshowActive = false;
         slideshowHandler.removeCallbacks(slideshowRunnable);
+        getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         showSlideshowIndicator(false);
         Toast.makeText(this, "幻灯片已停止", Toast.LENGTH_SHORT).show();
     }
